@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 import { promisify } from "util";
 import { NextResponse } from "next/server";
+import { createProject } from "@/lib/projects";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -93,8 +94,27 @@ export async function POST(request: Request) {
     );
 
     const videoBuffer = Buffer.from(await video.arrayBuffer());
-    await fs.writeFile(tempVideoPath, videoBuffer);
+    const project = await createProject(video.name);
 
+const mediaDir = path.join(
+  process.cwd(),
+  "storage",
+  "projects",
+  project.id,
+  "media",
+);
+
+const projectVideoPath = path.join(
+  mediaDir,
+  "input.mp4",
+);
+await fs.mkdir(mediaDir, {
+  recursive: true,
+});
+await fs.writeFile(
+  projectVideoPath,
+  videoBuffer,
+);
     const pythonScript = path.join(
       process.cwd(),
       "scripts",
@@ -105,7 +125,7 @@ export async function POST(request: Request) {
 
     const { stdout, stderr } = await execFileAsync(
       "python",
-      [pythonScript, tempVideoPath],
+      [pythonScript, projectVideoPath],
       {
         cwd: process.cwd(),
         windowsHide: true,
@@ -157,9 +177,39 @@ export async function POST(request: Request) {
     const baseName =
       path.parse(video.name).name.replace(/[^\p{L}\p{N}_-]+/gu, "-") ||
       "subtitle";
+      
+      const projectRoot = path.join(
+  process.cwd(),
+  "storage",
+  "projects",
+  project.id,
+);
+
+const transcriptDir = path.join(
+  projectRoot,
+  "transcript",
+);
+await fs.writeFile(
+  path.join(transcriptDir, "subtitle.srt"),
+  result.srt ?? "",
+  "utf8",
+);
+
+await fs.writeFile(
+  path.join(transcriptDir, "transcript.txt"),
+  result.text ?? "",
+  "utf8",
+);
+
+await fs.writeFile(
+  path.join(transcriptDir, "segments.json"),
+  JSON.stringify(segments, null, 2),
+  "utf8",
+);
 
     return NextResponse.json({
       success: true,
+      projectId: project.id,
       filename: `${baseName}.srt`,
       textFilename: `${baseName}.txt`,
       language: result.language ?? "unknown",
