@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import BurnButton from "./BurnButton";
 import { useDropzone } from "react-dropzone";
 
 type SubtitleSegment = {
@@ -61,11 +62,35 @@ function formatSrtTime(seconds: number): string {
     milliseconds.toString().padStart(3, "0")
   );
 }
+function wrapSubtitle(text: string, maxLength = 42): string {
+  const words = text.trim().split(/\s+/);
 
+  const lines: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+
+    if (next.length <= maxLength) {
+      current = next;
+    } else {
+      if (current) {
+        lines.push(current);
+      }
+      current = word;
+    }
+  }
+
+  if (current) {
+    lines.push(current);
+  }
+
+  return lines.join("\n");
+}
 function buildSrt(segments: SubtitleSegment[]): string {
   return segments
     .map((segment, index) => {
-      const text = segment.text.trim();
+     const text = wrapSubtitle(segment.text);
 
       return [
         index + 1,
@@ -412,6 +437,11 @@ export default function VideoUploader() {
             >
               Tải nội dung TXT
             </button>
+            <BurnButton
+  video={selectedFile}
+  srtFilename={srtFilename}
+  srtContent={generatedSrt}
+/>
           </div>
         </section>
       )}
