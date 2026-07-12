@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 
 import { updateProject } from "@/lib/projects";
 import { isSubtitleSegment, validateSegments } from "@/lib/subtitles";
-import { loadProjectWorkspace, saveEditedSubtitles } from "@/lib/storage";
+import {
+  loadProjectWorkspace,
+  saveEditedSubtitles,
+  saveTranslatedSubtitles,
+} from "@/lib/storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,7 +79,12 @@ export async function PUT(request: Request, context: RouteContext) {
       );
     }
 
-    const saved = await saveEditedSubtitles(projectId, segments);
+    const track = new URL(request.url).searchParams.get("track");
+    const targetLanguage = new URL(request.url).searchParams.get("language") ?? "unknown";
+    const saved =
+      track === "translation"
+        ? await saveTranslatedSubtitles(projectId, targetLanguage, segments)
+        : await saveEditedSubtitles(projectId, segments);
     const project = await updateProject(projectId, (current) => current);
 
     return NextResponse.json({

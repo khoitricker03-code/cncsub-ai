@@ -17,6 +17,7 @@ export function useSubtitleAutosave(
   segments: SubtitleSegment[],
   isDirty: boolean,
   onSaved: () => void,
+  saveUrl = `/api/projects/${projectId}`,
 ) {
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [message, setMessage] = useState("");
@@ -38,7 +39,7 @@ export function useSubtitleAutosave(
     setMessage("Đang lưu...");
 
     try {
-      const response = await fetch(`/api/projects/${projectId}`, {
+      const response = await fetch(saveUrl, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ segments }),
@@ -65,7 +66,7 @@ export function useSubtitleAutosave(
       setMessage(error instanceof Error ? error.message : "Không thể lưu phụ đề.");
       return false;
     }
-  }, [onSaved, projectId, segments]);
+  }, [onSaved, saveUrl, segments]);
 
   useEffect(() => {
     if (!isDirty) {

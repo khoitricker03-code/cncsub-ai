@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import SubtitleSegmentRow from "./SubtitleSegmentRow";
+import TranslationToolbar, { type SubtitleTrack } from "./TranslationToolbar";
 import VideoPlayer from "./VideoPlayer";
 import { useSubtitleAutosave } from "@/app/hooks/useSubtitleAutosave";
 import { useUndoRedo } from "@/app/hooks/useUndoRedo";
@@ -13,6 +14,7 @@ import {
   validateSegments,
   type SubtitleSegment,
 } from "@/lib/subtitles";
+import type { TranslationLanguageCode } from "@/lib/translation/languages";
 
 type OpenProjectResponse = {
   success: boolean;
@@ -24,6 +26,8 @@ type OpenProjectResponse = {
   };
   transcript?: string;
   segments?: SubtitleSegment[];
+  translatedSegments?: SubtitleSegment[] | null;
+  translationLanguage?: string | null;
   error?: string;
 };
 
@@ -41,28 +45,56 @@ function download(filename: string, content: string) {
 export default function ProjectEditor({ projectId }: { projectId: string }) {
   const [data, setData] = useState<OpenProjectResponse | null>(null);
   const {
-    value: segments,
-    commit: commitSegments,
-    reset: resetSegments,
-    undo,
-    redo,
-    canUndo,
-    canRedo,
+    value: originalSegments,
+    commit: commitOriginalSegments,
+    reset: resetOriginalSegments,
+    undo: undoOriginal,
+    redo: redoOriginal,
+    canUndo: canUndoOriginal,
+    canRedo: canRedoOriginal,
   } = useUndoRedo<SubtitleSegment[]>([], 20);
+  const {
+    value: translatedSegments,
+    commit: commitTranslatedSegments,
+    reset: resetTranslatedSegments,
+    undo: undoTranslation,
+    redo: redoTranslation,
+    canUndo: canUndoTranslation,
+    canRedo: canRedoTranslation,
+  } = useUndoRedo<SubtitleSegment[]>([], 20);
+  const [activeTrack, setActiveTrack] = useState<SubtitleTrack>("original");
+  const [translationLanguage, setTranslationLanguage] = useState("unknown");
   const [isDirty, setIsDirty] = useState(false);
+  const [isTranslationDirty, setIsTranslationDirty] = useState(false);
   const [error, setError] = useState("");
   const [currentTime, setCurrentTime] = useState(0);
   const [seekVideo, setSeekVideo] = useState<(time: number) => void>(() => () => undefined);
   const markSaved = useCallback(() => setIsDirty(false), []);
+  const markTranslationSaved = useCallback(
+    () => setIsTranslationDirty(false),
+    [],
+  );
   const handlePlayerReady = useCallback(
     (seek: (time: number) => void) => setSeekVideo(() => seek),
     [],
   );
   const { status, message, save } = useSubtitleAutosave(
     projectId,
-    segments,
+    originalSegments,
     isDirty,
     markSaved,
+  );
+  const translationSaveUrl = `/api/projects/${projectId}?track=translation&language=${encodeURIComponent(translationLanguage)}`;
+  const {
+    status: translationStatus,
+    message: translationSaveMessage,
+    save: saveTranslation,
+  } = useSubtitleAutosave(
+    projectId,
+    translatedSegments,
+    isTranslationDirty,
+    markTranslationSaved,
+    translationSaveUrl,
   );
 
   useEffect(() => {
@@ -80,7 +112,12 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         }
 
         setData(result);
-        resetSegments(result.segments);
+        resetOriginalSegments(result.segments);
+
+        if (Array.isArray(result.translatedSegments)) {
+          resetTranslatedSegments(result.translatedSegments);
+          setTranslationLanguage(result.translationLanguage ?? "unknown");
+        }
       } catch (loadError) {
         if (loadError instanceof DOMException && loadError.name === "AbortError") {
           return;
@@ -94,7 +131,14 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
 
     void openProject();
     return () => controller.abort();
-  }, [projectId, resetSegments]);
+  }, [projectId, resetOriginalSegments, resetTranslatedSegments]);
+
+  const segments =
+    activeTrack === "translation" ? translatedSegments : originalSegments;
+  const activeStatus =
+    activeTrack === "translation" ? translationStatus : status;
+  const activeMessage =
+    activeTrack === "translation" ? translationSaveMessage : message;
 
   const editedSrt = useMemo(() => buildSrt(segments), [segments]);
   const editedTranscript = useMemo(() => buildTranscript(segments), [segments]);
@@ -115,33 +159,71 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
   }, [activeSegmentId]);
 
   const updateSegment = (updated: SubtitleSegment) => {
-    commitSegments((current) =>
+    const commit =
+      activeTrack === "translation"
+        ? commitTranslatedSegments
+        : commitOriginalSegments;
+
+    commit((current) =>
       current.map((segment) =>
         segment.id === updated.id ? updated : segment,
       ),
     );
-    setIsDirty(true);
+
+    if (activeTrack === "translation") {
+      setIsTranslationDirty(true);
+    } else {
+      setIsDirty(true);
+    }
   };
 
+  const handleTranslationComplete = useCallback(
+    (
+      translated: SubtitleSegment[],
+      targetLanguage: TranslationLanguageCode,
+    ) => {
+      resetTranslatedSegments(translated);
+      setTranslationLanguage(targetLanguage);
+      setIsTranslationDirty(false);
+      setActiveTrack("translation");
+    },
+    [resetTranslatedSegments],
+  );
+
   const handleUndo = () => {
-    if (canUndo) {
-      undo();
+    if (activeTrack === "translation" && canUndoTranslation) {
+      undoTranslation();
+      setIsTranslationDirty(true);
+    } else if (activeTrack === "original" && canUndoOriginal) {
+      undoOriginal();
       setIsDirty(true);
     }
   };
 
   const handleRedo = () => {
-    if (canRedo) {
-      redo();
+    if (activeTrack === "translation" && canRedoTranslation) {
+      redoTranslation();
+      setIsTranslationDirty(true);
+    } else if (activeTrack === "original" && canRedoOriginal) {
+      redoOriginal();
       setIsDirty(true);
     }
   };
 
   const handleSave = async () => {
-    if (await save()) {
+    if (activeTrack === "translation") {
+      if (await saveTranslation()) {
+        setIsTranslationDirty(false);
+      }
+    } else if (await save()) {
       setIsDirty(false);
     }
   };
+
+  const canUndo =
+    activeTrack === "translation" ? canUndoTranslation : canUndoOriginal;
+  const canRedo =
+    activeTrack === "translation" ? canRedoTranslation : canRedoOriginal;
 
   if (error) {
     return (
@@ -192,23 +274,23 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
           <span
             className={[
               "rounded-full px-3 py-1 text-sm",
-              status === "error" || status === "invalid"
+              activeStatus === "error" || activeStatus === "invalid"
                 ? "bg-red-950 text-red-300"
-                : status === "saved"
+                : activeStatus === "saved"
                   ? "bg-green-950 text-green-300"
                   : "bg-gray-800 text-gray-300",
             ].join(" ")}
             role="status"
           >
-            {message || "Sẵn sàng"}
+            {activeMessage || "Sẵn sàng"}
           </span>
           <button
             type="button"
             onClick={() => void handleSave()}
-            disabled={status === "saving" || Boolean(validationError)}
+            disabled={activeStatus === "saving" || Boolean(validationError)}
             className="rounded-lg bg-green-600 px-4 py-2 font-semibold hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {status === "saving" ? "Đang lưu..." : "Lưu"}
+            {activeStatus === "saving" ? "Đang lưu..." : "Lưu"}
           </button>
           <button
             type="button"
@@ -226,6 +308,15 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
           </button>
         </div>
       </header>
+
+      <TranslationToolbar
+        projectId={projectId}
+        originalSegments={originalSegments}
+        hasTranslation={translatedSegments.length > 0}
+        activeTrack={activeTrack}
+        onTrackChange={setActiveTrack}
+        onTranslationComplete={handleTranslationComplete}
+      />
 
       <details className="rounded-xl border border-gray-800 bg-gray-900 p-4">
         <summary className="cursor-pointer font-semibold">

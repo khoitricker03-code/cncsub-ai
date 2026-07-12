@@ -19,6 +19,8 @@ export type ProjectWorkspace = {
   subtitle: string;
   transcript: string;
   segments: SubtitleSegment[];
+  translatedSegments: SubtitleSegment[] | null;
+  translationLanguage: string | null;
 };
 
 function projectRoot(projectId: string) {
@@ -28,6 +30,10 @@ function projectRoot(projectId: string) {
     "projects",
     projectId,
   );
+}
+
+export function getProjectRoot(projectId: string): string | null {
+  return isValidProjectId(projectId) ? projectRoot(projectId) : null;
 }
 
 export async function getProjectVideoPath(
@@ -138,11 +144,39 @@ export async function loadProjectWorkspace(
     throw new Error("segments.json không hợp lệ.");
   }
 
+  let translatedSegments: SubtitleSegment[] | null = null;
+  let translationLanguage: string | null = null;
+
+  try {
+    const [translatedContent, metadataContent] = await Promise.all([
+      fs.readFile(path.join(transcriptDir, "translated_segments.json"), "utf8"),
+      fs.readFile(path.join(transcriptDir, "translation.json"), "utf8"),
+    ]);
+    const parsedTranslation: unknown = JSON.parse(translatedContent);
+    const metadata: unknown = JSON.parse(metadataContent);
+
+    if (
+      Array.isArray(parsedTranslation) &&
+      parsedTranslation.every(isSubtitleSegment) &&
+      metadata &&
+      typeof metadata === "object" &&
+      "targetLanguage" in metadata &&
+      typeof metadata.targetLanguage === "string"
+    ) {
+      translatedSegments = parsedTranslation;
+      translationLanguage = metadata.targetLanguage;
+    }
+  } catch {
+    // Translation is optional for existing projects.
+  }
+
   return {
     project,
     subtitle,
     transcript,
     segments: parsedSegments,
+    translatedSegments,
+    translationLanguage,
   };
 }
 
@@ -182,4 +216,43 @@ export async function saveEditedSubtitles(
   );
 
   return { subtitle, transcript };
+}
+
+export async function saveTranslatedSubtitles(
+  projectId: string,
+  targetLanguage: string,
+  segments: SubtitleSegment[],
+): Promise<{ subtitle: string }> {
+  if (!isValidProjectId(projectId) || !(await getProject(projectId))) {
+    throw new Error("Project không tồn tại.");
+  }
+
+  const validationError = validateSegments(segments);
+
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
+  const transcriptDir = path.join(projectRoot(projectId), "transcript");
+  const subtitle = buildSrt(segments);
+
+  await Promise.all([
+    fs.writeFile(
+      path.join(transcriptDir, "translated_segments.json"),
+      JSON.stringify(segments, null, 2),
+      "utf8",
+    ),
+    fs.writeFile(
+      path.join(transcriptDir, "translated.srt"),
+      subtitle,
+      "utf8",
+    ),
+    fs.writeFile(
+      path.join(transcriptDir, "translation.json"),
+      JSON.stringify({ targetLanguage, updatedAt: new Date().toISOString() }, null, 2),
+      "utf8",
+    ),
+  ]);
+
+  return { subtitle };
 }
