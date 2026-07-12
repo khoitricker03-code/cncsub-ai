@@ -1,7 +1,13 @@
 import { promises as fs } from "fs";
 import path from "path";
 
-import type { SubtitleSegment } from "./whisper";
+import {
+  buildSrt,
+  buildTranscript,
+  isSubtitleSegment,
+  validateSegments,
+  type SubtitleSegment,
+} from "./subtitles";
 import {
   getProject,
   isValidProjectId,
@@ -82,21 +88,6 @@ export async function saveTranscript(
   );
 }
 
-function isSubtitleSegment(value: unknown): value is SubtitleSegment {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const segment = value as Record<string, unknown>;
-
-  return (
-    typeof segment.id === "number" &&
-    typeof segment.start === "number" &&
-    typeof segment.end === "number" &&
-    typeof segment.text === "string"
-  );
-}
-
 export async function loadProjectWorkspace(
   projectId: string,
 ): Promise<ProjectWorkspace | null> {
@@ -136,4 +127,42 @@ export async function loadProjectWorkspace(
     transcript,
     segments: parsedSegments,
   };
+}
+
+export async function saveEditedSubtitles(
+  projectId: string,
+  segments: SubtitleSegment[],
+): Promise<{ subtitle: string; transcript: string }> {
+  if (!isValidProjectId(projectId) || !(await getProject(projectId))) {
+    throw new Error("Project không tồn tại.");
+  }
+
+  const validationError = validateSegments(segments);
+
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
+  const subtitle = buildSrt(segments);
+  const transcript = buildTranscript(segments);
+  const transcriptDir = path.join(projectRoot(projectId), "transcript");
+  const suffix = `.tmp-${process.pid}-${Date.now()}`;
+  const files = [
+    {
+      path: path.join(transcriptDir, "segments.json"),
+      content: JSON.stringify(segments, null, 2),
+    },
+    { path: path.join(transcriptDir, "subtitle.srt"), content: subtitle },
+    { path: path.join(transcriptDir, "transcript.txt"), content: transcript },
+  ];
+
+  await Promise.all(
+    files.map((file) => fs.writeFile(`${file.path}${suffix}`, file.content, "utf8")),
+  );
+
+  await Promise.all(
+    files.map((file) => fs.rename(`${file.path}${suffix}`, file.path)),
+  );
+
+  return { subtitle, transcript };
 }
