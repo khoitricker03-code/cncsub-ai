@@ -14,6 +14,7 @@ export async function translateBatchWithCache(
   targetLanguage: string,
   segments: SubtitleSegment[],
   signal?: AbortSignal,
+  sourceLanguage?: string,
 ): Promise<SubtitleSegment[]> {
   const cacheDirectory = path.join(
     projectRoot,
@@ -50,10 +51,9 @@ export async function translateBatchWithCache(
 
   if (missing.length > 0) {
     const translator = createTranslator();
-    const translated = await translator.translateBatch(
+    const translated = await translator.batchTranslate(
       missing.map(({ id, text }) => ({ id, text })),
-      targetLanguage,
-      signal,
+      { sourceLanguage, targetLanguage, signal },
     );
 
     await Promise.all(

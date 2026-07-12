@@ -23,6 +23,12 @@ export function useTranslation(
   const [progress, setProgress] = useState(0);
   const [isTranslating, setIsTranslating] = useState(false);
   const [error, setError] = useState("");
+  const [isSuccess, setIsSuccess] = useState(false);
+  const lastRequest = useRef<{
+    segments: SubtitleSegment[];
+    sourceLanguage: string;
+    targetLanguage: TranslationLanguageCode;
+  } | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
 
   const cancel = useCallback(() => {
@@ -35,6 +41,7 @@ export function useTranslation(
     async (
       sourceSegments: SubtitleSegment[],
       targetLanguage: TranslationLanguageCode,
+      sourceLanguage = "auto",
     ) => {
       cancel();
       const controller = new AbortController();
@@ -42,6 +49,8 @@ export function useTranslation(
       setIsTranslating(true);
       setProgress(0);
       setError("");
+      setIsSuccess(false);
+      lastRequest.current = { segments: sourceSegments, sourceLanguage, targetLanguage };
 
       try {
         const translated: SubtitleSegment[] = [];
@@ -51,7 +60,7 @@ export function useTranslation(
           const response = await fetch(`/api/projects/${projectId}/translate`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ targetLanguage, segments: batch }),
+            body: JSON.stringify({ sourceLanguage, targetLanguage, segments: batch }),
             signal: controller.signal,
           });
           const result = (await response.json()) as TranslationResponse;
@@ -69,7 +78,7 @@ export function useTranslation(
         const saveResponse = await fetch(`/api/projects/${projectId}/translate`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ targetLanguage, segments: translated }),
+          body: JSON.stringify({ sourceLanguage, targetLanguage, segments: translated }),
           signal: controller.signal,
         });
         const saveResult = (await saveResponse.json()) as TranslationResponse;
@@ -79,6 +88,7 @@ export function useTranslation(
         }
 
         setProgress(100);
+        setIsSuccess(true);
         onComplete(translated, targetLanguage);
       } catch (translationError) {
         if (translationError instanceof DOMException && translationError.name === "AbortError") {
@@ -100,5 +110,25 @@ export function useTranslation(
     [cancel, onComplete, projectId],
   );
 
-  return { translate, cancel, progress, isTranslating, error };
+  const retry = useCallback(() => {
+    const request = lastRequest.current;
+
+    if (request) {
+      void translate(
+        request.segments,
+        request.targetLanguage,
+        request.sourceLanguage,
+      );
+    }
+  }, [translate]);
+
+  return {
+    translate,
+    cancel,
+    retry,
+    progress,
+    isTranslating,
+    isSuccess,
+    error,
+  };
 }

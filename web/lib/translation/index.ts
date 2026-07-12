@@ -49,4 +49,8 @@ export function createTranslator(): Translator {
   });
 }
 
-export type { Translator, TranslationInput } from "./translator";
+export type {
+  Translator,
+  TranslationInput,
+  TranslationOptions,
+} from "./translator";

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import SubtitleSegmentRow from "./SubtitleSegmentRow";
+import BilingualSubtitleList from "./BilingualSubtitleList";
 import TranslationToolbar, { type SubtitleTrack } from "./TranslationToolbar";
 import VideoPlayer from "./VideoPlayer";
 import { useSubtitleAutosave } from "@/app/hooks/useSubtitleAutosave";
@@ -177,6 +178,20 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     }
   };
 
+  const updateOriginalSegment = (updated: SubtitleSegment) => {
+    commitOriginalSegments((current) =>
+      current.map((segment) => (segment.id === updated.id ? updated : segment)),
+    );
+    setIsDirty(true);
+  };
+
+  const updateTranslatedSegment = (updated: SubtitleSegment) => {
+    commitTranslatedSegments((current) =>
+      current.map((segment) => (segment.id === updated.id ? updated : segment)),
+    );
+    setIsTranslationDirty(true);
+  };
+
   const handleTranslationComplete = useCallback(
     (
       translated: SubtitleSegment[],
@@ -335,18 +350,29 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         onSegmentChange={updateSegment}
       />
 
-      <section className="max-h-[720px] space-y-3 overflow-y-auto pr-1">
-        {segments.map((segment, index) => (
-          <SubtitleSegmentRow
-            key={segment.id}
-            index={index}
-            segment={segment}
-            onChange={updateSegment}
-            onSeek={seekVideo}
-            isActive={segment.id === activeSegmentId}
-          />
-        ))}
-      </section>
+      {activeTrack === "both" ? (
+        <BilingualSubtitleList
+          originalSegments={originalSegments}
+          translatedSegments={translatedSegments}
+          activeSegmentId={activeSegmentId}
+          onOriginalChange={updateOriginalSegment}
+          onTranslationChange={updateTranslatedSegment}
+          onSeek={seekVideo}
+        />
+      ) : (
+        <section className="max-h-[720px] space-y-3 overflow-y-auto pr-1">
+          {segments.map((segment, index) => (
+            <SubtitleSegmentRow
+              key={segment.id}
+              index={index}
+              segment={segment}
+              onChange={updateSegment}
+              onSeek={seekVideo}
+              isActive={segment.id === activeSegmentId}
+            />
+          ))}
+        </section>
+      )}
     </div>
   );
 }

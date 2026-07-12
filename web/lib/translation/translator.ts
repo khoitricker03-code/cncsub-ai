@@ -3,11 +3,18 @@ export type TranslationInput = {
   text: string;
 };
 
+export type TranslationOptions = {
+  sourceLanguage?: string;
+  targetLanguage: string;
+  signal?: AbortSignal;
+};
+
 export interface Translator {
   readonly provider: string;
-  translateBatch(
+  translate(text: string, options: TranslationOptions): Promise<string>;
+  detectLanguage(text: string, signal?: AbortSignal): Promise<string>;
+  batchTranslate(
     segments: TranslationInput[],
-    targetLanguage: string,
-    signal?: AbortSignal,
+    options: TranslationOptions,
   ): Promise<TranslationInput[]>;
 }

@@ -21,7 +21,10 @@ function parseBody(body: unknown) {
     return null;
   }
 
-  const { targetLanguage, segments } = body as Record<string, unknown>;
+  const { sourceLanguage, targetLanguage, segments } = body as Record<
+    string,
+    unknown
+  >;
 
   if (
     typeof targetLanguage !== "string" ||
@@ -32,7 +35,12 @@ function parseBody(body: unknown) {
     return null;
   }
 
-  return { targetLanguage, segments };
+  return {
+    sourceLanguage:
+      typeof sourceLanguage === "string" ? sourceLanguage : "auto",
+    targetLanguage,
+    segments,
+  };
 }
 
 export async function POST(request: Request, context: RouteContext) {
@@ -61,6 +69,7 @@ export async function POST(request: Request, context: RouteContext) {
       language?.name ?? parsed.targetLanguage,
       parsed.segments,
       request.signal,
+      parsed.sourceLanguage,
     );
 
     return NextResponse.json({ success: true, segments });

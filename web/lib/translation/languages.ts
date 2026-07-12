@@ -9,6 +9,10 @@ export const TRANSLATION_LANGUAGES = [
   { code: "es", name: "Spanish" },
   { code: "fr", name: "French" },
   { code: "de", name: "German" },
+  { code: "pt", name: "Portuguese" },
+  { code: "ru", name: "Russian" },
+  { code: "ar", name: "Arabic" },
+  { code: "hi", name: "Hindi" },
 ] as const;
 
 export type TranslationLanguageCode =

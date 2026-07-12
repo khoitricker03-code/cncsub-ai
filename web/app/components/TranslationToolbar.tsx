@@ -9,7 +9,7 @@ import {
   type TranslationLanguageCode,
 } from "@/lib/translation/languages";
 
-export type SubtitleTrack = "original" | "translation";
+export type SubtitleTrack = "original" | "translation" | "both";
 
 type TranslationToolbarProps = {
   projectId: string;
@@ -33,7 +33,16 @@ export default function TranslationToolbar({
 }: TranslationToolbarProps) {
   const [targetLanguage, setTargetLanguage] =
     useState<TranslationLanguageCode>("en");
-  const { translate, cancel, progress, isTranslating, error } = useTranslation(
+  const [sourceLanguage, setSourceLanguage] = useState("auto");
+  const {
+    translate,
+    cancel,
+    retry,
+    progress,
+    isTranslating,
+    isSuccess,
+    error,
+  } = useTranslation(
     projectId,
     onTranslationComplete,
   );
@@ -42,26 +51,59 @@ export default function TranslationToolbar({
     <section className="space-y-3 rounded-xl border border-gray-800 bg-gray-900 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-lg bg-gray-950 p-1">
-          {(["original", "translation"] as const).map((track) => (
+          {(["original", "translation", "both"] as const).map((track) => (
             <button
               key={track}
               type="button"
-              disabled={track === "translation" && !hasTranslation}
+              disabled={track !== "original" && !hasTranslation}
               onClick={() => onTrackChange(track)}
               className={[
                 "rounded-md px-4 py-2 text-sm font-semibold",
                 activeTrack === track
                   ? "bg-blue-600 text-white"
                   : "text-gray-400 hover:text-white",
-                track === "translation" && !hasTranslation
+                track !== "original" && !hasTranslation
                   ? "cursor-not-allowed opacity-40"
                   : "",
               ].join(" ")}
             >
-              {track === "original" ? "Original" : "Translation"}
+              {track === "original"
+                ? "Original"
+                : track === "translation"
+                  ? "Translated"
+                  : "Both"}
             </button>
           ))}
         </div>
+
+        <select
+          value={sourceLanguage}
+          disabled={isTranslating}
+          onChange={(event) => setSourceLanguage(event.target.value)}
+          className="ml-auto rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-white"
+          aria-label="Source language"
+        >
+          <option value="auto">Auto detect</option>
+          {TRANSLATION_LANGUAGES.map((language) => (
+            <option key={language.code} value={language.code}>
+              {language.name}
+            </option>
+          ))}
+        </select>
+
+        <button
+          type="button"
+          disabled={isTranslating || sourceLanguage === "auto"}
+          onClick={() => {
+            const previousSource = sourceLanguage as TranslationLanguageCode;
+            setSourceLanguage(targetLanguage);
+            setTargetLanguage(previousSource);
+          }}
+          className="rounded-lg bg-gray-700 px-3 py-2 hover:bg-gray-600 disabled:opacity-40"
+          aria-label="Swap languages"
+        >
+          ⇄
+        </button>
 
         <select
           value={targetLanguage}
@@ -69,7 +111,8 @@ export default function TranslationToolbar({
           onChange={(event) =>
             setTargetLanguage(event.target.value as TranslationLanguageCode)
           }
-          className="ml-auto rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-white"
+          className="rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-white"
+          aria-label="Target language"
         >
           {TRANSLATION_LANGUAGES.map((language) => (
             <option key={language.code} value={language.code}>
@@ -89,7 +132,9 @@ export default function TranslationToolbar({
         ) : (
           <button
             type="button"
-            onClick={() => void translate(originalSegments, targetLanguage)}
+            onClick={() =>
+              void translate(originalSegments, targetLanguage, sourceLanguage)
+            }
             disabled={originalSegments.length === 0}
             className="rounded-lg bg-purple-600 px-4 py-2 font-semibold hover:bg-purple-700 disabled:opacity-50"
           >
@@ -114,6 +159,18 @@ export default function TranslationToolbar({
       )}
 
       {error && <p className="text-sm text-red-300">{error}</p>}
+      {error && !isTranslating && (
+        <button
+          type="button"
+          onClick={retry}
+          className="rounded-lg bg-gray-700 px-3 py-2 text-sm font-semibold hover:bg-gray-600"
+        >
+          Thử lại
+        </button>
+      )}
+      {isSuccess && !isTranslating && !error && (
+        <p className="text-sm text-green-300">Dịch phụ đề thành công.</p>
+      )}
     </section>
   );
 }
