@@ -1,40 +1,75 @@
+import ProjectList from "./components/ProjectList";
 import VideoUploader from "./components/VideoUploader";
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-gray-950 text-white flex items-center justify-center">
-      <div className="w-full max-w-4xl p-8">
-        <h1 className="text-5xl font-bold text-center mb-4">CNCSub AI</h1>
+    <main className="min-h-screen bg-gray-950 text-white">
+      <div className="mx-auto flex min-h-screen max-w-7xl">
 
-        <p className="text-center text-gray-400 mb-10">
-          AI tạo phụ đề • Dịch • Lồng tiếng
-        </p>
+        {/* Sidebar */}
 
-        <div className="bg-gray-900 rounded-2xl p-8 border border-gray-800">
-          <VideoUploader />
+        <aside className="w-80 border-r border-gray-800 bg-gray-900 p-6">
 
-          <div className="grid grid-cols-2 gap-4 mt-8">
-            <select className="bg-gray-800 p-3 rounded-lg">
-              <option>Tiếng Việt</option>
-              <option>English</option>
-              <option>中文 (Chinese)</option>
-              <option>日本語</option>
-              <option>한국어</option>
-            </select>
+          <h2 className="mb-6 text-2xl font-bold">
+            CNCSub AI
+          </h2>
 
-            <select className="bg-gray-800 p-3 rounded-lg">
-              <option>Tiếng Việt</option>
-              <option>English</option>
-              <option>中文 (Chinese)</option>
-              <option>日本語</option>
-              <option>한국어</option>
-            </select>
+          <button className="mb-6 w-full rounded-xl bg-blue-600 py-3 font-semibold hover:bg-blue-700">
+            + New Project
+          </button>
+
+          <ProjectList />
+
+        </aside>
+
+        {/* Main */}
+
+        <section className="flex-1 p-10">
+
+          <h1 className="mb-3 text-5xl font-bold">
+            CNCSub AI
+          </h1>
+
+          <p className="mb-10 text-gray-400">
+            AI tạo phụ đề • Dịch • Lồng tiếng
+          </p>
+
+          <div className="rounded-2xl border border-gray-800 bg-gray-900 p-8">
+
+            <VideoUploader />
+
+            <div className="mt-8 grid grid-cols-2 gap-4">
+
+              <select className="rounded-lg bg-gray-800 p-3">
+
+                <option>Tiếng Việt</option>
+                <option>English</option>
+                <option>中文</option>
+                <option>日本語</option>
+                <option>한국어</option>
+
+              </select>
+
+              <select className="rounded-lg bg-gray-800 p-3">
+
+                <option>Tiếng Việt</option>
+                <option>English</option>
+                <option>中文</option>
+                <option>日本語</option>
+                <option>한국어</option>
+
+              </select>
+
+            </div>
+
+            <button className="mt-8 w-full rounded-xl bg-blue-600 py-4 text-xl font-bold hover:bg-blue-700">
+              🚀 Tạo phụ đề
+            </button>
+
           </div>
 
-          <button className="mt-8 w-full bg-blue-600 hover:bg-blue-700 rounded-xl py-4 text-xl font-bold">
-            🚀 Tạo phụ đề
-          </button>
-        </div>
+        </section>
+
       </div>
     </main>
   );
