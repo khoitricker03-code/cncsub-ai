@@ -72,6 +72,12 @@ function projectFile(
     "project.json",
   );
 }
+
+export function isValidProjectId(projectId: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    projectId,
+  );
+}
 export async function ensureProjectStorage(): Promise<void> {
   await fs.mkdir(STORAGE_ROOT, {
     recursive: true,
@@ -145,6 +151,10 @@ export async function createProject(
 export async function getProject(
   projectId: string,
 ): Promise<ProjectRecord | null> {
+  if (!isValidProjectId(projectId)) {
+    return null;
+  }
+
   try {
     const content = await fs.readFile(
       projectFile(projectId),
@@ -168,6 +178,31 @@ export async function getProject(
 
     throw error;
   }
+}
+
+export async function updateProject(
+  projectId: string,
+  update: (project: ProjectRecord) => ProjectRecord,
+): Promise<ProjectRecord> {
+  const current = await getProject(projectId);
+
+  if (!current) {
+    throw new Error("Project không tồn tại.");
+  }
+
+  const next = {
+    ...update(current),
+    id: current.id,
+    updatedAt: new Date().toISOString(),
+  };
+
+  await fs.writeFile(
+    projectFile(projectId),
+    JSON.stringify(next, null, 2),
+    "utf8",
+  );
+
+  return next;
 }
 
 export async function listProjects(): Promise<

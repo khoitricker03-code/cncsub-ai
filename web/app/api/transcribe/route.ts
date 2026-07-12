@@ -3,7 +3,7 @@ import os from "os";
 import path from "path";
 import { NextResponse } from "next/server";
 import { transcribeVideo } from "@/lib/whisper";
-import { createProject } from "@/lib/projects";
+import { createProject, updateProject } from "@/lib/projects";
 import {
   saveInputVideo,
   saveTranscript,
@@ -13,39 +13,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
-
-
-type SubtitleSegment = {
-  id: number;
-  start: number;
-  end: number;
-  text: string;
-};
-
-type PythonTranscribeResult = {
-  language?: string;
-  language_probability?: number;
-  text?: string;
-  srt?: string;
-  segments?: SubtitleSegment[];
-  error?: string;
-};
-
-function isValidSegment(value: unknown): value is SubtitleSegment {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const segment = value as Record<string, unknown>;
-
-  return (
-    typeof segment.id === "number" &&
-    typeof segment.start === "number" &&
-    typeof segment.end === "number" &&
-    typeof segment.text === "string"
-  );
-}
-
 export async function POST(request: Request) {
   let tempVideoPath = "";
 
@@ -142,6 +109,30 @@ await saveTranscript(
   result.srt,
   segments,
 );
+
+    await updateProject(project.id, (current) => ({
+      ...current,
+      status: "ready",
+      media: {
+        sourceFilename: video.name,
+        sourcePath: path.relative(process.cwd(), projectVideoPath),
+      },
+      transcript: {
+        language: result.language ?? "unknown",
+        textPath: path.relative(
+          process.cwd(),
+          path.join(transcriptDir, "transcript.txt"),
+        ),
+        subtitlePath: path.relative(
+          process.cwd(),
+          path.join(transcriptDir, "subtitle.srt"),
+        ),
+        segmentsPath: path.relative(
+          process.cwd(),
+          path.join(transcriptDir, "segments.json"),
+        ),
+      },
+    }));
     return NextResponse.json({
       success: true,
       projectId: project.id,

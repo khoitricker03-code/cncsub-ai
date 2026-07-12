@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 type Project = {
   id: string;
@@ -67,6 +68,13 @@ if (
           <div className="text-xs text-gray-500">
             {new Date(project.createdAt).toLocaleString()}
           </div>
+
+          <Link
+            href={`/projects/${project.id}`}
+            className="mt-3 inline-flex rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold transition hover:bg-blue-700"
+          >
+            Open Project
+          </Link>
         </div>
       ))}
     </div>
