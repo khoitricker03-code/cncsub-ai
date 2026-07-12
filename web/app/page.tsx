@@ -1,7 +1,10 @@
 import ProjectList from "./components/ProjectList";
 import VideoUploader from "./components/VideoUploader";
+import UserMenu from "./components/UserMenu";
+import { auth } from "@/auth";
 
-export default function Home() {
+export default async function Home() {
+  const session = await auth();
   return (
     <main className="min-h-screen bg-gray-950 text-white">
       <div className="mx-auto flex min-h-screen max-w-7xl">
@@ -13,6 +16,8 @@ export default function Home() {
           <h2 className="mb-6 text-2xl font-bold">
             CNCSub AI
           </h2>
+
+          <UserMenu email={session?.user.email} />
 
           <button className="mb-6 w-full rounded-xl bg-blue-600 py-3 font-semibold hover:bg-blue-700">
             + New Project
