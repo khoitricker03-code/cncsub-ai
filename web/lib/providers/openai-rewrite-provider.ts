@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 
+import { isValidTextTransform } from "../ai-validation";
 import type { RewriteEngine, RewriteInput, RewriteMode } from "../rewrite";
 
 const MODE_INSTRUCTIONS: Record<RewriteMode, string> = {
@@ -76,20 +77,7 @@ export class OpenAIRewriteProvider implements RewriteEngine {
         ? (parsed as { segments: unknown }).segments
         : null;
 
-    if (
-      !Array.isArray(rewritten) ||
-      rewritten.length !== segments.length ||
-      !rewritten.every(
-        (item, index) =>
-          item &&
-          typeof item === "object" &&
-          "id" in item &&
-          "text" in item &&
-          item.id === segments[index].id &&
-          typeof item.text === "string" &&
-          item.text.split("\n").length === segments[index].text.split("\n").length,
-      )
-    ) {
+    if (!isValidTextTransform(segments, rewritten)) {
       throw new Error("Kết quả rewrite không giữ nguyên cấu trúc phụ đề.");
     }
 

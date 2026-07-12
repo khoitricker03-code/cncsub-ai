@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 
+import { isValidTextTransform } from "../ai-validation";
 import type {
   Translator,
   TranslationInput,
@@ -98,20 +99,7 @@ export class OpenAICompatibleTranslator implements Translator {
         ? (parsed as { segments: unknown }).segments
         : null;
 
-    if (
-      !Array.isArray(translated) ||
-      translated.length !== segments.length ||
-      !translated.every(
-        (item, index) =>
-          item &&
-          typeof item === "object" &&
-          "id" in item &&
-          "text" in item &&
-          item.id === segments[index].id &&
-          typeof item.text === "string" &&
-          item.text.split("\n").length === segments[index].text.split("\n").length,
-      )
-    ) {
+    if (!isValidTextTransform(segments, translated)) {
       throw new Error("Kết quả dịch không giữ nguyên cấu trúc phụ đề.");
     }
 

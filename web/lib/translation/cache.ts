@@ -1,12 +1,12 @@
-import { createHash } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 
 import { createTranslator } from "./index";
+import { createContentCacheKey } from "../cache-key";
 import type { SubtitleSegment } from "@/lib/subtitles";
 
 function cacheKey(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
+  return createContentCacheKey("translation", text);
 }
 
 export async function translateBatchWithCache(

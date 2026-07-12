@@ -1,8 +1,8 @@
-import { createHash } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 
 import { createRewriteEngine } from "./providers";
+import { createContentCacheKey } from "./cache-key";
 import type { RewriteMode } from "./rewrite";
 import type { SubtitleSegment } from "./subtitles";
 
@@ -18,7 +18,7 @@ export async function rewriteWithCache(
   const missing: SubtitleSegment[] = [];
 
   for (const segment of segments) {
-    const hash = createHash("sha256").update(segment.text).digest("hex");
+    const hash = createContentCacheKey(`rewrite:${mode}`, segment.text);
 
     try {
       const cached = JSON.parse(
@@ -43,7 +43,7 @@ export async function rewriteWithCache(
     await Promise.all(
       rewritten.map(async (item, index) => {
         const source = missing[index];
-        const hash = createHash("sha256").update(source.text).digest("hex");
+        const hash = createContentCacheKey(`rewrite:${mode}`, source.text);
         values.set(item.id, item.text);
         await fs.writeFile(
           path.join(directory, `${hash}.json`),

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import SubtitleSegmentRow from "./SubtitleSegmentRow";
 import BilingualSubtitleList from "./BilingualSubtitleList";
 import RewriteToolbar from "./RewriteToolbar";
+import ExportMenu from "./ExportMenu";
 import TranslationToolbar, { type SubtitleTrack } from "./TranslationToolbar";
 import VideoPlayer from "./VideoPlayer";
 import { useSubtitleAutosave } from "@/app/hooks/useSubtitleAutosave";
@@ -379,6 +380,11 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         onModeChange={setRewriteMode}
         onRewriteAll={() => void rewrite(segments, rewriteMode)}
         onCancel={cancelRewrite}
+      />
+
+      <ExportMenu
+        originalSegments={originalSegments}
+        translatedSegments={translatedSegments}
       />
 
       <details className="rounded-xl border border-gray-800 bg-gray-900 p-4">
