@@ -4,6 +4,7 @@ import { Readable } from "stream";
 import { NextResponse } from "next/server";
 
 import { getProjectVideoPath } from "@/lib/storage";
+import { authorizeProject } from "@/lib/services/access-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +16,9 @@ type RouteContext = {
 export async function GET(request: Request, context: RouteContext) {
   try {
     const { projectId } = await context.params;
+    if (!(await authorizeProject(projectId))) {
+      return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
+    }
     const videoPath = await getProjectVideoPath(projectId);
 
     if (!videoPath) {

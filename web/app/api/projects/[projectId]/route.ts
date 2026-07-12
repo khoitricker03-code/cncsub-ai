@@ -7,6 +7,7 @@ import {
   saveEditedSubtitles,
   saveTranslatedSubtitles,
 } from "@/lib/storage";
+import { authorizeProject } from "@/lib/services/access-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,9 @@ export async function GET(
 ) {
   try {
     const { projectId } = await context.params;
+    if (!(await authorizeProject(projectId))) {
+      return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
+    }
     const workspace = await loadProjectWorkspace(projectId);
 
     if (!workspace) {
@@ -57,6 +61,9 @@ export async function GET(
 export async function PUT(request: Request, context: RouteContext) {
   try {
     const { projectId } = await context.params;
+    if (!(await authorizeProject(projectId))) {
+      return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
+    }
     const body: unknown = await request.json();
     const segments =
       body && typeof body === "object" && "segments" in body

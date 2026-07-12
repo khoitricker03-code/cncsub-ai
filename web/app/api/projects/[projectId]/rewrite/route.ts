@@ -5,6 +5,7 @@ import { isRewriteMode } from "@/lib/rewrite";
 import { rewriteWithCache } from "@/lib/rewrite-cache";
 import { isSubtitleSegment } from "@/lib/subtitles";
 import { getProjectRoot } from "@/lib/storage";
+import { authorizeProject } from "@/lib/services/access-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,6 +15,9 @@ type RouteContext = { params: Promise<{ projectId: string }> };
 export async function POST(request: Request, context: RouteContext) {
   try {
     const { projectId } = await context.params;
+    if (!(await authorizeProject(projectId))) {
+      return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
+    }
     const body: unknown = await request.json();
     const mode =
       body && typeof body === "object" && "mode" in body

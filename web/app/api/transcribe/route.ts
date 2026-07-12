@@ -8,6 +8,9 @@ import {
   saveInputVideo,
   saveTranscript,
 } from "@/lib/storage";
+import { auth } from "@/auth";
+import { registerProject } from "@/lib/services/project-service";
+import { isolateProjectStorage } from "@/lib/services/user-storage-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +20,10 @@ export async function POST(request: Request) {
   let tempVideoPath = "";
 
   try {
+    const session = await auth();
+    if (!session?.user.id) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
     const formData = await request.formData();
     const video = formData.get("video");
 
@@ -63,6 +70,13 @@ export async function POST(request: Request) {
 
     const videoBuffer = Buffer.from(await video.arrayBuffer());
     const project = await createProject(video.name);
+    await isolateProjectStorage(session.user.id, project.id);
+    await registerProject(session.user.id, {
+      id: project.id,
+      name: project.name,
+      status: project.status,
+      sourceFilename: video.name,
+    });
 
 
 const projectVideoPath =

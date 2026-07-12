@@ -8,6 +8,7 @@ import {
   getProjectRoot,
   saveTranslatedSubtitles,
 } from "@/lib/storage";
+import { authorizeProject } from "@/lib/services/access-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,6 +47,9 @@ function parseBody(body: unknown) {
 export async function POST(request: Request, context: RouteContext) {
   try {
     const { projectId } = await context.params;
+    if (!(await authorizeProject(projectId))) {
+      return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
+    }
     const parsed = parseBody(await request.json());
     const root = getProjectRoot(projectId);
 
@@ -88,6 +92,9 @@ export async function POST(request: Request, context: RouteContext) {
 export async function PUT(request: Request, context: RouteContext) {
   try {
     const { projectId } = await context.params;
+    if (!(await authorizeProject(projectId))) {
+      return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
+    }
     const parsed = parseBody(await request.json());
 
     if (!parsed) {
