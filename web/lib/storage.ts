@@ -30,6 +30,23 @@ function projectRoot(projectId: string) {
   );
 }
 
+export async function getProjectVideoPath(
+  projectId: string,
+): Promise<string | null> {
+  if (!isValidProjectId(projectId) || !(await getProject(projectId))) {
+    return null;
+  }
+
+  const videoPath = path.join(projectRoot(projectId), "media", "input.mp4");
+
+  try {
+    await fs.access(videoPath);
+    return videoPath;
+  } catch {
+    return null;
+  }
+}
+
 export async function saveInputVideo(
   projectId: string,
   buffer: Buffer,

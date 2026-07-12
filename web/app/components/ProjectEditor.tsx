@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import SubtitleSegmentRow from "./SubtitleSegmentRow";
+import VideoPlayer from "./VideoPlayer";
 import { useSubtitleAutosave } from "@/app/hooks/useSubtitleAutosave";
 import {
   buildSrt,
@@ -41,7 +42,13 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
   const [segments, setSegments] = useState<SubtitleSegment[]>([]);
   const [isDirty, setIsDirty] = useState(false);
   const [error, setError] = useState("");
+  const [currentTime, setCurrentTime] = useState(0);
+  const [seekVideo, setSeekVideo] = useState<(time: number) => void>(() => () => undefined);
   const markSaved = useCallback(() => setIsDirty(false), []);
+  const handlePlayerReady = useCallback(
+    (seek: (time: number) => void) => setSeekVideo(() => seek),
+    [],
+  );
   const { status, message, save } = useSubtitleAutosave(
     projectId,
     segments,
@@ -83,6 +90,20 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
   const editedSrt = useMemo(() => buildSrt(segments), [segments]);
   const editedTranscript = useMemo(() => buildTranscript(segments), [segments]);
   const validationError = validateSegments(segments);
+  const activeSegmentId =
+    segments.find(
+      (segment) => currentTime >= segment.start && currentTime < segment.end,
+    )?.id ?? null;
+
+  useEffect(() => {
+    if (activeSegmentId === null) {
+      return;
+    }
+
+    document
+      .querySelector(`[data-segment-id="${activeSegmentId}"]`)
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [activeSegmentId]);
 
   const updateSegment = (updated: SubtitleSegment) => {
     setSegments((current) =>
@@ -176,13 +197,22 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         </pre>
       </details>
 
-      <section className="space-y-3">
+      <VideoPlayer
+        projectId={projectId}
+        segments={segments}
+        onTimeChange={setCurrentTime}
+        onPlayerReady={handlePlayerReady}
+      />
+
+      <section className="max-h-[720px] space-y-3 overflow-y-auto pr-1">
         {segments.map((segment, index) => (
           <SubtitleSegmentRow
             key={segment.id}
             index={index}
             segment={segment}
             onChange={updateSegment}
+            onSeek={seekVideo}
+            isActive={segment.id === activeSegmentId}
           />
         ))}
       </section>
