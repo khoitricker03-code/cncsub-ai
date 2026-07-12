@@ -10,6 +10,8 @@ type SubtitleSegmentRowProps = {
   onChange: (segment: SubtitleSegment) => void;
   onSeek: (time: number) => void;
   isActive: boolean;
+  onRewrite?: (segment: SubtitleSegment) => void;
+  isRewriting?: boolean;
 };
 
 function parseTime(value: string): number {
@@ -23,6 +25,8 @@ export default function SubtitleSegmentRow({
   onChange,
   onSeek,
   isActive,
+  onRewrite,
+  isRewriting = false,
 }: SubtitleSegmentRowProps) {
   const isValid = isValidSegmentTiming(segment);
 
@@ -95,6 +99,19 @@ export default function SubtitleSegmentRow({
         <p className="mt-2 text-sm text-red-300">
           Thời gian kết thúc phải lớn hơn thời gian bắt đầu.
         </p>
+      )}
+      {onRewrite && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onRewrite(segment);
+          }}
+          disabled={isRewriting}
+          className="mt-3 rounded-lg bg-cyan-900 px-3 py-2 text-xs font-semibold text-cyan-200 hover:bg-cyan-800 disabled:opacity-40"
+        >
+          AI Rewrite câu này
+        </button>
       )}
     </article>
   );

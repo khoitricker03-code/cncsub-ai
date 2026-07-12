@@ -5,10 +5,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import SubtitleSegmentRow from "./SubtitleSegmentRow";
 import BilingualSubtitleList from "./BilingualSubtitleList";
+import RewriteToolbar from "./RewriteToolbar";
 import TranslationToolbar, { type SubtitleTrack } from "./TranslationToolbar";
 import VideoPlayer from "./VideoPlayer";
 import { useSubtitleAutosave } from "@/app/hooks/useSubtitleAutosave";
 import { useUndoRedo } from "@/app/hooks/useUndoRedo";
+import { useRewrite } from "@/app/hooks/useRewrite";
 import {
   buildSrt,
   buildTranscript,
@@ -16,6 +18,7 @@ import {
   type SubtitleSegment,
 } from "@/lib/subtitles";
 import type { TranslationLanguageCode } from "@/lib/translation/languages";
+import type { RewriteMode } from "@/lib/rewrite";
 
 type OpenProjectResponse = {
   success: boolean;
@@ -65,6 +68,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
   } = useUndoRedo<SubtitleSegment[]>([], 20);
   const [activeTrack, setActiveTrack] = useState<SubtitleTrack>("original");
   const [translationLanguage, setTranslationLanguage] = useState("unknown");
+  const [rewriteMode, setRewriteMode] = useState<RewriteMode>("natural");
   const [isDirty, setIsDirty] = useState(false);
   const [isTranslationDirty, setIsTranslationDirty] = useState(false);
   const [error, setError] = useState("");
@@ -140,6 +144,40 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     activeTrack === "translation" ? translationStatus : status;
   const activeMessage =
     activeTrack === "translation" ? translationSaveMessage : message;
+
+  const handleRewriteComplete = useCallback(
+    (rewritten: SubtitleSegment[]) => {
+      const rewrittenById = new Map(
+        rewritten.map((segment) => [segment.id, segment.text]),
+      );
+      const commit =
+        activeTrack === "translation"
+          ? commitTranslatedSegments
+          : commitOriginalSegments;
+
+      commit((current) =>
+        current.map((segment) =>
+          rewrittenById.has(segment.id)
+            ? { ...segment, text: rewrittenById.get(segment.id) ?? segment.text }
+            : segment,
+        ),
+      );
+
+      if (activeTrack === "translation") {
+        setIsTranslationDirty(true);
+      } else {
+        setIsDirty(true);
+      }
+    },
+    [activeTrack, commitOriginalSegments, commitTranslatedSegments],
+  );
+  const {
+    rewrite,
+    cancel: cancelRewrite,
+    progress: rewriteProgress,
+    isRewriting,
+    error: rewriteError,
+  } = useRewrite(projectId, handleRewriteComplete);
 
   const editedSrt = useMemo(() => buildSrt(segments), [segments]);
   const editedTranscript = useMemo(() => buildTranscript(segments), [segments]);
@@ -333,6 +371,16 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         onTranslationComplete={handleTranslationComplete}
       />
 
+      <RewriteToolbar
+        mode={rewriteMode}
+        progress={rewriteProgress}
+        isRewriting={isRewriting}
+        error={rewriteError}
+        onModeChange={setRewriteMode}
+        onRewriteAll={() => void rewrite(segments, rewriteMode)}
+        onCancel={cancelRewrite}
+      />
+
       <details className="rounded-xl border border-gray-800 bg-gray-900 p-4">
         <summary className="cursor-pointer font-semibold">
           Transcript gốc đã lưu
@@ -369,6 +417,8 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
               onChange={updateSegment}
               onSeek={seekVideo}
               isActive={segment.id === activeSegmentId}
+              onRewrite={(item) => void rewrite([item], rewriteMode)}
+              isRewriting={isRewriting}
             />
           ))}
         </section>
