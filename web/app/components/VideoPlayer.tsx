@@ -14,6 +14,7 @@ type VideoPlayerProps = {
   segments: SubtitleSegment[];
   onTimeChange: (time: number) => void;
   onPlayerReady: (seek: (time: number) => void) => void;
+  onSegmentChange: (segment: SubtitleSegment) => void;
 };
 
 function formatPlaybackTime(seconds: number): string {
@@ -25,6 +26,7 @@ export default function VideoPlayer({
   segments,
   onTimeChange,
   onPlayerReady,
+  onSegmentChange,
 }: VideoPlayerProps) {
   const {
     videoRef,
@@ -93,6 +95,7 @@ export default function VideoPlayer({
         currentTime={currentTime}
         duration={duration}
         onSeek={seek}
+        onSegmentChange={onSegmentChange}
       />
     </section>
   );

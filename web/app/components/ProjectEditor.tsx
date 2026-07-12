@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import SubtitleSegmentRow from "./SubtitleSegmentRow";
 import VideoPlayer from "./VideoPlayer";
 import { useSubtitleAutosave } from "@/app/hooks/useSubtitleAutosave";
+import { useUndoRedo } from "@/app/hooks/useUndoRedo";
 import {
   buildSrt,
   buildTranscript,
@@ -39,7 +40,15 @@ function download(filename: string, content: string) {
 
 export default function ProjectEditor({ projectId }: { projectId: string }) {
   const [data, setData] = useState<OpenProjectResponse | null>(null);
-  const [segments, setSegments] = useState<SubtitleSegment[]>([]);
+  const {
+    value: segments,
+    commit: commitSegments,
+    reset: resetSegments,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+  } = useUndoRedo<SubtitleSegment[]>([], 20);
   const [isDirty, setIsDirty] = useState(false);
   const [error, setError] = useState("");
   const [currentTime, setCurrentTime] = useState(0);
@@ -71,7 +80,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         }
 
         setData(result);
-        setSegments(result.segments);
+        resetSegments(result.segments);
       } catch (loadError) {
         if (loadError instanceof DOMException && loadError.name === "AbortError") {
           return;
@@ -85,7 +94,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
 
     void openProject();
     return () => controller.abort();
-  }, [projectId]);
+  }, [projectId, resetSegments]);
 
   const editedSrt = useMemo(() => buildSrt(segments), [segments]);
   const editedTranscript = useMemo(() => buildTranscript(segments), [segments]);
@@ -106,12 +115,26 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
   }, [activeSegmentId]);
 
   const updateSegment = (updated: SubtitleSegment) => {
-    setSegments((current) =>
+    commitSegments((current) =>
       current.map((segment) =>
         segment.id === updated.id ? updated : segment,
       ),
     );
     setIsDirty(true);
+  };
+
+  const handleUndo = () => {
+    if (canUndo) {
+      undo();
+      setIsDirty(true);
+    }
+  };
+
+  const handleRedo = () => {
+    if (canRedo) {
+      redo();
+      setIsDirty(true);
+    }
   };
 
   const handleSave = async () => {
@@ -150,6 +173,22 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={handleUndo}
+            disabled={!canUndo}
+            className="rounded-lg bg-gray-700 px-3 py-2 text-sm font-semibold hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Hoàn tác
+          </button>
+          <button
+            type="button"
+            onClick={handleRedo}
+            disabled={!canRedo}
+            className="rounded-lg bg-gray-700 px-3 py-2 text-sm font-semibold hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Làm lại
+          </button>
           <span
             className={[
               "rounded-full px-3 py-1 text-sm",
@@ -202,6 +241,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         segments={segments}
         onTimeChange={setCurrentTime}
         onPlayerReady={handlePlayerReady}
+        onSegmentChange={updateSegment}
       />
 
       <section className="max-h-[720px] space-y-3 overflow-y-auto pr-1">
