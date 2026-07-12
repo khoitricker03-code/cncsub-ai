@@ -1,18 +1,19 @@
-import { execFile } from "child_process";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { promisify } from "util";
 import { NextResponse } from "next/server";
+import { transcribeVideo } from "@/lib/whisper";
 import { createProject } from "@/lib/projects";
+import {
+  saveInputVideo,
+  saveTranscript,
+} from "@/lib/storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const execFileAsync = promisify(execFile);
-
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
-const TRANSCRIBE_TIMEOUT = 30 * 60 * 1000;
+
 
 type SubtitleSegment = {
   id: number;
@@ -96,25 +97,12 @@ export async function POST(request: Request) {
     const videoBuffer = Buffer.from(await video.arrayBuffer());
     const project = await createProject(video.name);
 
-const mediaDir = path.join(
-  process.cwd(),
-  "storage",
-  "projects",
-  project.id,
-  "media",
-);
 
-const projectVideoPath = path.join(
-  mediaDir,
-  "input.mp4",
-);
-await fs.mkdir(mediaDir, {
-  recursive: true,
-});
-await fs.writeFile(
-  projectVideoPath,
-  videoBuffer,
-);
+const projectVideoPath =
+  await saveInputVideo(
+    project.id,
+    videoBuffer,
+  );
     const pythonScript = path.join(
       process.cwd(),
       "scripts",
@@ -123,50 +111,9 @@ await fs.writeFile(
 
     await fs.access(pythonScript);
 
-    const { stdout, stderr } = await execFileAsync(
-      "python",
-      [pythonScript, projectVideoPath],
-      {
-        cwd: process.cwd(),
-        windowsHide: true,
-        maxBuffer: 50 * 1024 * 1024,
-        timeout: TRANSCRIBE_TIMEOUT,
-        env: {
-          ...process.env,
-          PYTHONIOENCODING: "utf-8",
-          PYTHONUTF8: "1",
-        },
-      },
-    );
+   const result = await transcribeVideo(projectVideoPath);
 
-    if (stderr.trim()) {
-      console.log("Whisper:", stderr);
-    }
-
-    const outputLines = stdout
-      .trim()
-      .split(/\r?\n/)
-      .filter(Boolean);
-
-    const jsonLine = [...outputLines]
-      .reverse()
-      .find((line) => line.trim().startsWith("{"));
-
-    if (!jsonLine) {
-      throw new Error(
-        "Python không trả về JSON hợp lệ. Hãy kiểm tra transcribe.py.",
-      );
-    }
-
-    const result = JSON.parse(jsonLine) as PythonTranscribeResult;
-
-    if (result.error) {
-      throw new Error(result.error);
-    }
-
-    const segments = Array.isArray(result.segments)
-      ? result.segments.filter(isValidSegment)
-      : [];
+const segments = result.segments;
 
     if (segments.length === 0) {
       throw new Error(
@@ -189,31 +136,19 @@ const transcriptDir = path.join(
   projectRoot,
   "transcript",
 );
-await fs.writeFile(
-  path.join(transcriptDir, "subtitle.srt"),
-  result.srt ?? "",
-  "utf8",
+await saveTranscript(
+  project.id,
+  result.text,
+  result.srt,
+  segments,
 );
-
-await fs.writeFile(
-  path.join(transcriptDir, "transcript.txt"),
-  result.text ?? "",
-  "utf8",
-);
-
-await fs.writeFile(
-  path.join(transcriptDir, "segments.json"),
-  JSON.stringify(segments, null, 2),
-  "utf8",
-);
-
     return NextResponse.json({
       success: true,
       projectId: project.id,
       filename: `${baseName}.srt`,
       textFilename: `${baseName}.txt`,
       language: result.language ?? "unknown",
-      languageProbability: result.language_probability ?? 0,
+      languageProbability: result.languageProbability,
       text: result.text ?? "",
       srt: result.srt ?? "",
       segments,
