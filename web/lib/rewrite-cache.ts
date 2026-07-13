@@ -38,6 +38,9 @@ export async function rewriteWithCache(
 
   if (missing.length > 0) {
     const engine = createRewriteEngine();
+    console.info(
+      `[rewrite] provider=${engine.provider} implementation=${engine.constructor.name}`,
+    );
     const rewritten = await engine.batchRewrite(missing, mode, signal);
 
     await Promise.all(

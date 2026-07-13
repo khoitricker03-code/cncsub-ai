@@ -28,6 +28,7 @@ export function createRewriteEngine(): RewriteEngine {
       return new GeminiRewriteProvider({
         apiKey: requireApiKey("GEMINI_API_KEY"),
         model: process.env.REWRITE_MODEL ?? "gemini-2.5-flash",
+        baseURL: process.env.GEMINI_BASE_URL,
       });
     case "openai":
       return new OpenAIRewriteProvider({

@@ -1,4 +1,4 @@
-import { OpenAICompatibleTranslator } from "./openai-compatible-translator";
+import { ChatCompletionsTranslator } from "./chat-completions-translator";
 import { GeminiTranslator } from "./gemini-translator";
 import type { Translator } from "./translator";
 
@@ -24,23 +24,24 @@ export function createTranslator(): Translator {
       return new GeminiTranslator({
         apiKey: requireApiKey("GEMINI_API_KEY"),
         model: process.env.GEMINI_TRANSLATION_MODEL ?? "gemini-2.5-flash",
+        baseURL: process.env.GEMINI_BASE_URL,
       });
     case "openai":
-      return new OpenAICompatibleTranslator({
+      return new ChatCompletionsTranslator({
         provider,
         apiKey: requireApiKey("OPENAI_API_KEY"),
         model: process.env.OPENAI_TRANSLATION_MODEL ?? "gpt-4.1-mini",
         baseURL: process.env.OPENAI_BASE_URL,
       });
     case "deepseek":
-      return new OpenAICompatibleTranslator({
+      return new ChatCompletionsTranslator({
         provider,
         apiKey: requireApiKey("DEEPSEEK_API_KEY"),
         model: process.env.DEEPSEEK_TRANSLATION_MODEL ?? "deepseek-chat",
         baseURL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
       });
     case "local":
-      return new OpenAICompatibleTranslator({
+      return new ChatCompletionsTranslator({
         provider,
         apiKey: process.env.LOCAL_LLM_API_KEY ?? "local",
         model: process.env.LOCAL_TRANSLATION_MODEL ?? "local-model",

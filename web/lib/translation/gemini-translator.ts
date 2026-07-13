@@ -30,6 +30,7 @@ const SEGMENTS_SCHEMA = {
 type GeminiTranslatorOptions = {
   apiKey: string;
   model: string;
+  baseURL?: string;
   client?: GoogleGenAI;
 };
 
@@ -40,7 +41,12 @@ export class GeminiTranslator implements Translator {
 
   constructor(options: GeminiTranslatorOptions) {
     this.model = options.model;
-    this.client = options.client ?? new GoogleGenAI({ apiKey: options.apiKey });
+    this.client =
+      options.client ??
+      new GoogleGenAI({
+        apiKey: options.apiKey,
+        httpOptions: options.baseURL ? { baseUrl: options.baseURL } : undefined,
+      });
   }
 
   async translate(text: string, options: TranslationOptions): Promise<string> {

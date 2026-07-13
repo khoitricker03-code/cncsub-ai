@@ -7,19 +7,19 @@ import type {
   TranslationOptions,
 } from "./translator";
 
-type OpenAICompatibleTranslatorOptions = {
+type ChatCompletionsTranslatorOptions = {
   provider: string;
   apiKey: string;
   model: string;
   baseURL?: string;
 };
 
-export class OpenAICompatibleTranslator implements Translator {
+export class ChatCompletionsTranslator implements Translator {
   readonly provider: string;
   private readonly client: OpenAI;
   private readonly model: string;
 
-  constructor(options: OpenAICompatibleTranslatorOptions) {
+  constructor(options: ChatCompletionsTranslatorOptions) {
     this.provider = options.provider;
     this.model = options.model;
     this.client = new OpenAI({

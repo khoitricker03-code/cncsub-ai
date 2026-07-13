@@ -51,6 +51,9 @@ export async function translateBatchWithCache(
 
   if (missing.length > 0) {
     const translator = createTranslator();
+    console.info(
+      `[translation] provider=${translator.provider} implementation=${translator.constructor.name}`,
+    );
     const translated = await translator.batchTranslate(
       missing.map(({ id, text }) => ({ id, text })),
       { sourceLanguage, targetLanguage, signal },
