@@ -1,4 +1,3 @@
-import { auth } from "@/auth";
 import { isDevelopmentAuthBypassEnabled } from "./auth-flags";
 
 export const DEVELOPMENT_USER_ID = "local-development-user";
@@ -8,6 +7,7 @@ export async function getCurrentUserId(): Promise<string | null> {
     return DEVELOPMENT_USER_ID;
   }
 
+  const { auth } = await import("@/auth");
   const session = await auth();
   return session?.user.id ?? null;
 }
