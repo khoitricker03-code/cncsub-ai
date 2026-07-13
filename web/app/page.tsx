@@ -1,11 +1,14 @@
 import ProjectList from "./components/ProjectList";
 import VideoUploader from "./components/VideoUploader";
 import UserMenu from "./components/UserMenu";
-import { isDevelopmentAuthBypassEnabled } from "@/lib/services/auth-flags";
+import {
+  getCurrentSession,
+  isDevelopmentAuthBypassEnabled,
+} from "@/lib/services/auth-context";
 
 export default async function Home() {
   const developmentBypass = isDevelopmentAuthBypassEnabled();
-  const session = developmentBypass ? null : await (await import("@/auth")).auth();
+  const session = await getCurrentSession();
   return (
     <main className="min-h-screen bg-gray-950 text-white">
       <div className="mx-auto flex min-h-screen max-w-7xl">
