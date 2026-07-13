@@ -2,9 +2,11 @@ import ProjectList from "./components/ProjectList";
 import VideoUploader from "./components/VideoUploader";
 import UserMenu from "./components/UserMenu";
 import { auth } from "@/auth";
+import { isDevelopmentAuthBypassEnabled } from "@/lib/services/auth-flags";
 
 export default async function Home() {
-  const session = await auth();
+  const developmentBypass = isDevelopmentAuthBypassEnabled();
+  const session = developmentBypass ? null : await auth();
   return (
     <main className="min-h-screen bg-gray-950 text-white">
       <div className="mx-auto flex min-h-screen max-w-7xl">
@@ -17,7 +19,13 @@ export default async function Home() {
             CNCSub AI
           </h2>
 
-          <UserMenu email={session?.user.email} />
+          {developmentBypass ? (
+            <div className="mb-5 rounded-lg bg-amber-950 p-3 text-xs text-amber-200">
+              Local development • Authentication disabled
+            </div>
+          ) : (
+            <UserMenu email={session?.user.email} />
+          )}
 
           <button className="mb-6 w-full rounded-xl bg-blue-600 py-3 font-semibold hover:bg-blue-700">
             + New Project

@@ -6,6 +6,7 @@ import GitHub from "next-auth/providers/github";
 import Google from "next-auth/providers/google";
 
 import { prisma } from "@/lib/prisma";
+import { isDevelopmentAuthBypassEnabled } from "@/lib/services/auth-flags";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -33,6 +34,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
+    authorized({ auth: session }) {
+      return isDevelopmentAuthBypassEnabled() || Boolean(session?.user);
+    },
     session({ session, user }) {
       session.user.id = user.id;
       return session;

@@ -205,6 +205,24 @@ export async function updateProject(
   return next;
 }
 
+export async function deleteProject(projectId: string): Promise<boolean> {
+  if (!isValidProjectId(projectId)) {
+    return false;
+  }
+
+  try {
+    await fs.rm(projectDirectory(projectId), { recursive: true, force: false });
+    return true;
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String(error.code)
+        : "";
+    if (code === "ENOENT") return false;
+    throw error;
+  }
+}
+
 export async function listProjects(): Promise<
   ProjectRecord[]
 > {
