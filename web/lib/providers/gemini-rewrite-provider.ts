@@ -37,7 +37,6 @@ const SEGMENTS_SCHEMA = {
 type GeminiRewriteProviderOptions = {
   apiKey: string;
   model: string;
-  baseURL?: string;
   client?: GoogleGenAI;
 };
 
@@ -51,9 +50,8 @@ export class GeminiRewriteProvider implements RewriteEngine {
     this.client =
       options.client ??
       new GoogleGenAI({
-        apiKey: options.apiKey,
-        httpOptions: options.baseURL ? { baseUrl: options.baseURL } : undefined,
-      });
+  apiKey: options.apiKey,
+});
   }
 
   async rewrite(
@@ -70,6 +68,10 @@ export class GeminiRewriteProvider implements RewriteEngine {
     mode: RewriteMode,
     signal?: AbortSignal,
   ): Promise<RewriteInput[]> {
+    console.log("=== Gemini Rewrite ===");
+console.log("Model:", this.model);
+console.log("Provider:", this.provider);
+console.log("API Key:", process.env.GEMINI_API_KEY?.slice(0, 8));
     const response = await this.client.models.generateContent({
       model: this.model,
       contents: JSON.stringify({ mode, segments }),

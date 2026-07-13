@@ -30,7 +30,6 @@ const SEGMENTS_SCHEMA = {
 type GeminiTranslatorOptions = {
   apiKey: string;
   model: string;
-  baseURL?: string;
   client?: GoogleGenAI;
 };
 
@@ -40,21 +39,27 @@ export class GeminiTranslator implements Translator {
   private readonly model: string;
 
   constructor(options: GeminiTranslatorOptions) {
-    this.model = options.model;
-    this.client =
-      options.client ??
-      new GoogleGenAI({
-        apiKey: options.apiKey,
-        httpOptions: options.baseURL ? { baseUrl: options.baseURL } : undefined,
-      });
-  }
-
+  this.model = options.model;
+  this.client =
+    options.client ??
+    new GoogleGenAI({
+      apiKey: options.apiKey,
+    });
+}
   async translate(text: string, options: TranslationOptions): Promise<string> {
     const [translated] = await this.batchTranslate([{ id: 0, text }], options);
     return translated.text;
   }
 
-  async detectLanguage(text: string, signal?: AbortSignal): Promise<string> {
+ async detectLanguage(text: string, signal?: AbortSignal): Promise<string> {
+  console.log("=== Gemini Translation ===");
+  console.log("Model:", this.model);
+  console.log("API key prefix:", process.env.GEMINI_API_KEY?.slice(0, 6));
+console.log("===== Gemini Batch Translate =====");
+console.log("MODEL =", this.model);
+console.log("API KEY =", process.env.GEMINI_API_KEY?.slice(0, 8));
+
+console.log("MODEL =", this.model);
     const response = await this.client.models.generateContent({
       model: this.model,
       contents: text.slice(0, 4000),

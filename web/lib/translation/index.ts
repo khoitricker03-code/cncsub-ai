@@ -22,10 +22,9 @@ export function createTranslator(): Translator {
   switch (provider) {
     case "gemini":
       return new GeminiTranslator({
-        apiKey: requireApiKey("GEMINI_API_KEY"),
-        model: process.env.GEMINI_TRANSLATION_MODEL ?? "gemini-2.5-flash",
-        baseURL: process.env.GEMINI_BASE_URL,
-      });
+  apiKey: requireApiKey("GEMINI_API_KEY"),
+  model: process.env.GEMINI_TRANSLATION_MODEL ?? "gemini-2.5-flash",
+});
     case "openai":
       return new ChatCompletionsTranslator({
         provider,
@@ -40,6 +39,7 @@ export function createTranslator(): Translator {
         model: process.env.DEEPSEEK_TRANSLATION_MODEL ?? "deepseek-chat",
         baseURL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
       });
+<<<<<<< HEAD
     case "local": {
       const model =
         process.env.LOCAL_MODEL ||
@@ -53,6 +53,18 @@ export function createTranslator(): Translator {
         baseURL: "http://127.0.0.1:11434/v1",
       });
     }
+=======
+    case "local":
+  return new ChatCompletionsTranslator({
+    provider,
+    apiKey: process.env.LOCAL_LLM_API_KEY ?? "ollama",
+    model:
+      process.env.LOCAL_TRANSLATION_MODEL ??
+      process.env.LOCAL_MODEL ??
+      "qwen2.5:7b",
+    baseURL: process.env.LOCAL_BASE_URL ?? "http://127.0.0.1:11434/v1",
+  });
+>>>>>>> 3b86c5b (Switch translation and rewrite to Ollama)
     default:
       throw new Error(`TRANSLATION_PROVIDER không được hỗ trợ: ${provider}`);
   }
