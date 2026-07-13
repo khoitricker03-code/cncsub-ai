@@ -4,56 +4,51 @@ import type { Translator } from "./translator";
 
 type ProviderName = "openai" | "gemini" | "deepseek" | "local";
 
-const PROVIDER_DEFAULTS: Record<
-  ProviderName,
-  { model: string; baseURL?: string; apiKeyEnv: string }
-> = {
-  openai: { model: "gpt-4.1-mini", apiKeyEnv: "OPENAI_API_KEY" },
-  gemini: {
-    model: "gemini-2.5-flash",
-    apiKeyEnv: "GEMINI_API_KEY",
-  },
-  deepseek: {
-    model: "deepseek-chat",
-    baseURL: "https://api.deepseek.com",
-    apiKeyEnv: "DEEPSEEK_API_KEY",
-  },
-  local: {
-    model: "local-model",
-    baseURL: "http://127.0.0.1:11434/v1",
-    apiKeyEnv: "LOCAL_LLM_API_KEY",
-  },
-};
-
-export function createTranslator(): Translator {
-  const configured = (process.env.TRANSLATION_PROVIDER ?? "openai").toLowerCase();
-
-  if (!(configured in PROVIDER_DEFAULTS)) {
-    throw new Error(`TRANSLATION_PROVIDER không được hỗ trợ: ${configured}`);
-  }
-
-  const provider = configured as ProviderName;
-  const defaults = PROVIDER_DEFAULTS[provider];
-  const prefix = provider.toUpperCase();
-  const apiKey = process.env[defaults.apiKeyEnv] ?? (provider === "local" ? "local" : "");
+function requireApiKey(name: string): string {
+  const apiKey = process.env[name];
 
   if (!apiKey) {
-    throw new Error(`Thiếu biến môi trường ${defaults.apiKeyEnv}.`);
+    throw new Error(`Thiếu biến môi trường ${name}.`);
   }
 
-  if (provider === "gemini") {
-    return new GeminiTranslator({
-      apiKey,
-      model: process.env.GEMINI_TRANSLATION_MODEL ?? defaults.model,
-    });
-  }
+  return apiKey;
+}
 
-  return new OpenAICompatibleTranslator({
-    provider,
-    apiKey,
-    model: process.env[`${prefix}_TRANSLATION_MODEL`] ?? defaults.model,
-    baseURL: process.env[`${prefix}_BASE_URL`] ?? defaults.baseURL,
-  });
+export function createTranslator(): Translator {
+  const provider = (process.env.TRANSLATION_PROVIDER ?? "openai")
+    .trim()
+    .toLowerCase() as ProviderName;
+
+  switch (provider) {
+    case "gemini":
+      return new GeminiTranslator({
+        apiKey: requireApiKey("GEMINI_API_KEY"),
+        model: process.env.GEMINI_TRANSLATION_MODEL ?? "gemini-2.5-flash",
+      });
+    case "openai":
+      return new OpenAICompatibleTranslator({
+        provider,
+        apiKey: requireApiKey("OPENAI_API_KEY"),
+        model: process.env.OPENAI_TRANSLATION_MODEL ?? "gpt-4.1-mini",
+        baseURL: process.env.OPENAI_BASE_URL,
+      });
+    case "deepseek":
+      return new OpenAICompatibleTranslator({
+        provider,
+        apiKey: requireApiKey("DEEPSEEK_API_KEY"),
+        model: process.env.DEEPSEEK_TRANSLATION_MODEL ?? "deepseek-chat",
+        baseURL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
+      });
+    case "local":
+      return new OpenAICompatibleTranslator({
+        provider,
+        apiKey: process.env.LOCAL_LLM_API_KEY ?? "local",
+        model: process.env.LOCAL_TRANSLATION_MODEL ?? "local-model",
+        baseURL: process.env.LOCAL_BASE_URL ?? "http://127.0.0.1:11434/v1",
+      });
+    default:
+      throw new Error(`TRANSLATION_PROVIDER không được hỗ trợ: ${provider}`);
+  }
 }
 
 export type {
