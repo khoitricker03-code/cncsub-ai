@@ -1,10 +1,11 @@
 import { prisma } from "@/lib/prisma";
-import { getCurrentUserId } from "@/lib/services/auth-context";
+import { getCurrentSession } from "@/lib/services/auth-context";
 
 type Context = { params: Promise<{ jobId: string }> };
 
 export async function GET(_request: Request, { params }: Context) {
-  const userId = await getCurrentUserId();
+  const session = await getCurrentSession();
+  const userId = session?.user.id;
   if (!userId) return new Response("Unauthorized", { status: 401 });
   const { jobId } = await params;
   const stream = new ReadableStream({

@@ -2,12 +2,13 @@ import { NextResponse } from "next/server";
 
 import { jobQueue } from "@/lib/queue/database-queue";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUserId } from "@/lib/services/auth-context";
+import { getCurrentSession } from "@/lib/services/auth-context";
 
 type Context = { params: Promise<{ jobId: string }> };
 
 export async function GET(_request: Request, { params }: Context) {
-  const userId = await getCurrentUserId();
+  const session = await getCurrentSession();
+  const userId = session?.user.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { jobId } = await params;
   const job = await prisma.job.findFirst({ where: { id: jobId, userId } });
@@ -15,7 +16,8 @@ export async function GET(_request: Request, { params }: Context) {
 }
 
 export async function PATCH(request: Request, { params }: Context) {
-  const userId = await getCurrentUserId();
+  const session = await getCurrentSession();
+  const userId = session?.user.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { jobId } = await params;
   const body = (await request.json()) as { action?: "cancel" | "retry" };

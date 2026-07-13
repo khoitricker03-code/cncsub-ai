@@ -1,14 +1,18 @@
 import { isDevelopmentAuthBypassEnabled } from "./auth-flags";
 
-export const DEVELOPMENT_USER_ID = "local-development-user";
+export const DEVELOPMENT_USER_ID = "local-dev-user";
 
-export async function getCurrentUserId(): Promise<string | null> {
+export async function getCurrentSession() {
   if (isDevelopmentAuthBypassEnabled()) {
-    return DEVELOPMENT_USER_ID;
+    return { user: { id: DEVELOPMENT_USER_ID } };
   }
 
   const { auth } = await import("@/auth");
-  const session = await auth();
+  return auth();
+}
+
+export async function getCurrentUserId(): Promise<string | null> {
+  const session = await getCurrentSession();
   return session?.user.id ?? null;
 }
 

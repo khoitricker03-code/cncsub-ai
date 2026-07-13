@@ -2,12 +2,13 @@ import { NextResponse } from "next/server";
 
 import { deleteOwnedProject, renameOwnedProject } from "@/lib/services/project-service";
 import { deleteProject, updateProject } from "@/lib/projects";
-import { getCurrentUserId, isDevelopmentAuthBypassEnabled } from "@/lib/services/auth-context";
+import { getCurrentSession, isDevelopmentAuthBypassEnabled } from "@/lib/services/auth-context";
 
 type Context = { params: Promise<{ projectId: string }> };
 
 export async function PATCH(request: Request, { params }: Context) {
-  const userId = await getCurrentUserId();
+  const session = await getCurrentSession();
+  const userId = session?.user.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { projectId } = await params;
   const body = (await request.json()) as { name?: string };
@@ -21,7 +22,8 @@ export async function PATCH(request: Request, { params }: Context) {
 }
 
 export async function DELETE(_request: Request, { params }: Context) {
-  const userId = await getCurrentUserId();
+  const session = await getCurrentSession();
+  const userId = session?.user.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { projectId } = await params;
   const deleted = isDevelopmentAuthBypassEnabled()

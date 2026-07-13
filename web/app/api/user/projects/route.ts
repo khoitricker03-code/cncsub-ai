@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 
 import { listUserProjects } from "@/lib/services/project-service";
-import { getCurrentUserId, isDevelopmentAuthBypassEnabled } from "@/lib/services/auth-context";
+import { getCurrentSession, isDevelopmentAuthBypassEnabled } from "@/lib/services/auth-context";
 import { listProjects } from "@/lib/projects";
 
 export async function GET(request: Request) {
-  const userId = await getCurrentUserId();
+  const session = await getCurrentSession();
+  const userId = session?.user.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const url = new URL(request.url);
   const search = url.searchParams.get("search") ?? "";

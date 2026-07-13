@@ -11,7 +11,7 @@ import {
 import { registerProject } from "@/lib/services/project-service";
 import { isolateProjectStorage } from "@/lib/services/user-storage-service";
 import {
-  getCurrentUserId,
+  getCurrentSession,
   isDevelopmentAuthBypassEnabled,
 } from "@/lib/services/auth-context";
 
@@ -23,7 +23,8 @@ export async function POST(request: Request) {
   let tempVideoPath = "";
 
   try {
-    const userId = await getCurrentUserId();
+    const session = await getCurrentSession();
+    const userId = session?.user.id;
     if (!userId) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
