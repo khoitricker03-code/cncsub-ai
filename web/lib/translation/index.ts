@@ -40,13 +40,19 @@ export function createTranslator(): Translator {
         model: process.env.DEEPSEEK_TRANSLATION_MODEL ?? "deepseek-chat",
         baseURL: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
       });
-    case "local":
+    case "local": {
+      const model =
+        process.env.LOCAL_MODEL ||
+        process.env.TRANSLATION_MODEL ||
+        "qwen2.5:7b";
+      console.info(`[translation] provider=local\nmodel=${model}`);
       return new ChatCompletionsTranslator({
         provider,
         apiKey: process.env.LOCAL_LLM_API_KEY ?? "local",
-        model: process.env.LOCAL_TRANSLATION_MODEL ?? "local-model",
-        baseURL: process.env.LOCAL_BASE_URL ?? "http://127.0.0.1:11434/v1",
+        model,
+        baseURL: "http://127.0.0.1:11434/v1",
       });
+    }
     default:
       throw new Error(`TRANSLATION_PROVIDER không được hỗ trợ: ${provider}`);
   }

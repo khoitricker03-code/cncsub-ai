@@ -44,13 +44,17 @@ export function createRewriteEngine(): RewriteEngine {
         model: process.env.REWRITE_MODEL ?? "deepseek-chat",
         baseURL: process.env.REWRITE_BASE_URL ?? "https://api.deepseek.com",
       });
-    case "local":
+    case "local": {
+      const model =
+        process.env.LOCAL_MODEL || process.env.REWRITE_MODEL || "qwen2.5:7b";
+      console.info(`[rewrite] provider=local\nmodel=${model}`);
       return new OpenAIRewriteProvider({
         provider,
         apiKey: process.env.LOCAL_LLM_API_KEY ?? "local",
-        model: process.env.REWRITE_MODEL ?? "local-model",
-        baseURL: process.env.REWRITE_BASE_URL ?? "http://127.0.0.1:11434/v1",
+        model,
+        baseURL: "http://127.0.0.1:11434/v1",
       });
+    }
     default:
       throw new Error(`REWRITE_PROVIDER không được hỗ trợ: ${provider}`);
   }
