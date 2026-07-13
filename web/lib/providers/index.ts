@@ -1,4 +1,5 @@
 import { OpenAIRewriteProvider } from "./openai-rewrite-provider";
+import { GeminiRewriteProvider } from "./gemini-rewrite-provider";
 import type { RewriteEngine } from "../rewrite";
 
 type ProviderName = "openai" | "gemini" | "deepseek" | "local";
@@ -11,7 +12,6 @@ const CONFIG: Record<
   gemini: {
     key: "GEMINI_API_KEY",
     model: "gemini-2.5-flash",
-    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
   },
   deepseek: {
     key: "DEEPSEEK_API_KEY",
@@ -38,6 +38,13 @@ export function createRewriteEngine(): RewriteEngine {
 
   if (!apiKey) {
     throw new Error(`Thiếu biến môi trường ${config.key}.`);
+  }
+
+  if (provider === "gemini") {
+    return new GeminiRewriteProvider({
+      apiKey,
+      model: process.env.REWRITE_MODEL ?? config.model,
+    });
   }
 
   return new OpenAIRewriteProvider({

@@ -1,4 +1,5 @@
 import { OpenAICompatibleTranslator } from "./openai-compatible-translator";
+import { GeminiTranslator } from "./gemini-translator";
 import type { Translator } from "./translator";
 
 type ProviderName = "openai" | "gemini" | "deepseek" | "local";
@@ -10,7 +11,6 @@ const PROVIDER_DEFAULTS: Record<
   openai: { model: "gpt-4.1-mini", apiKeyEnv: "OPENAI_API_KEY" },
   gemini: {
     model: "gemini-2.5-flash",
-    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
     apiKeyEnv: "GEMINI_API_KEY",
   },
   deepseek: {
@@ -39,6 +39,13 @@ export function createTranslator(): Translator {
 
   if (!apiKey) {
     throw new Error(`Thiếu biến môi trường ${defaults.apiKeyEnv}.`);
+  }
+
+  if (provider === "gemini") {
+    return new GeminiTranslator({
+      apiKey,
+      model: process.env.GEMINI_TRANSLATION_MODEL ?? defaults.model,
+    });
   }
 
   return new OpenAICompatibleTranslator({
