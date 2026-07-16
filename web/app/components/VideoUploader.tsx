@@ -253,12 +253,12 @@ export default function VideoUploader() {
     },
     multiple: false,
     disabled: loading,
-    maxSize: 100 * 1024 * 1024,
+    maxSize: 500 * 1024 * 1024,
   });
 
   const rejectionMessage =
     fileRejections.length > 0
-      ? "File không hợp lệ hoặc lớn hơn 100 MB."
+      ? "File không hợp lệ hoặc lớn hơn 500 MB."
       : "";
 
   return (
@@ -292,7 +292,7 @@ export default function VideoUploader() {
               Kéo video vào hoặc bấm để chọn
             </p>
             <p className="text-sm text-gray-400">
-              Video hoặc audio, tối đa 100 MB
+              Video hoặc audio, tối đa 500 MB
             </p>
           </div>
         )}

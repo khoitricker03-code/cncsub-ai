@@ -1,5 +1,8 @@
 import { promises as fs } from "fs";
+import { createWriteStream } from "fs";
 import path from "path";
+import { Readable } from "stream";
+import { pipeline } from "stream/promises";
 
 import {
   buildSrt,
@@ -55,7 +58,7 @@ export async function getProjectVideoPath(
 
 export async function saveInputVideo(
   projectId: string,
-  buffer: Buffer,
+  input: Buffer | File,
   filename = "input.mp4",
 ) {
   const mediaDir = path.join(
@@ -72,7 +75,14 @@ export async function saveInputVideo(
     filename,
   );
 
-  await fs.writeFile(videoPath, buffer);
+  if (input instanceof File) {
+    await pipeline(
+      Readable.fromWeb(input.stream() as import("stream/web").ReadableStream),
+      createWriteStream(videoPath, { flags: "wx" }),
+    );
+  } else {
+    await fs.writeFile(videoPath, input, { flag: "wx" });
+  }
 
   return videoPath;
 }

@@ -9,7 +9,7 @@ import { logger } from "@/lib/logger";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
+const MAX_VIDEO_SIZE = 500 * 1024 * 1024;
 
 type BurnResponse = {
   success: boolean;

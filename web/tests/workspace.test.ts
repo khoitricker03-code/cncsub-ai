@@ -22,6 +22,12 @@ import {
   splitSegment,
 } from "../lib/segment-editor.ts";
 import { LocalJobQueue } from "../lib/queue/local-queue.ts";
+import nextConfig from "../next.config.ts";
+
+test("Next.js proxy accepts the 500 MB upload pipeline", () => {
+  assert.equal(nextConfig.experimental?.proxyClientMaxBodySize, "500mb");
+  assert.equal(nextConfig.experimental?.serverActions?.bodySizeLimit, "500mb");
+});
 
 const segments: SubtitleSegment[] = [
   { id: 1, start: 0, end: 1.5, text: "Hello\nworld" },

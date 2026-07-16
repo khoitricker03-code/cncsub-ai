@@ -19,7 +19,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
+const MAX_VIDEO_SIZE = 500 * 1024 * 1024;
 export async function POST(request: Request) {
   let tempVideoPath = "";
 
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: "Video hiện tại phải nhỏ hơn 100 MB.",
+          error: "Video hiện tại phải nhỏ hơn hoặc bằng 500 MB.",
         },
         { status: 413 },
       );
@@ -73,7 +73,6 @@ export async function POST(request: Request) {
       `cncsub-${Date.now()}-${randomPart}${safeExtension}`,
     );
 
-    const videoBuffer = Buffer.from(await video.arrayBuffer());
     const project = await createProject(video.name);
     if (!isDevelopmentAuthBypassEnabled()) {
       await isolateProjectStorage(userId, project.id);
@@ -89,7 +88,7 @@ export async function POST(request: Request) {
 const projectVideoPath =
   await saveInputVideo(
     project.id,
-    videoBuffer,
+    video,
   );
     const pythonScript = path.join(
       process.cwd(),
