@@ -39,21 +39,22 @@ export class OllamaTranslator implements Translator {
     return code;
   }
 
-  async batchTranslate(
+  private async translateBatchItems(
     segments: TranslationInput[],
     options: TranslationOptions,
   ): Promise<TranslationInput[]> {
     const parsed = await this.client.chatJSON({
       system:
-        'Translate subtitle text. Return JSON only as {"segments":[{"id":number,"text":string}]}. Preserve every id, order, item count, meaning, and exact newline count. Never merge or split items.',
+        'Translate subtitle text. Return JSON only as {"segments":[{"id":number,"text":string}]}. Preserve every id, order, item count, meaning, and exact newline count. Never merge or split items. Do not add explanations or markdown formatting.',
       user: JSON.stringify({
         sourceLanguage: options.sourceLanguage ?? "auto-detect",
         targetLanguage: options.targetLanguage,
         segments,
       }),
-      temperature: 0.2,
+      temperature: 0,
       signal: options.signal,
     });
+
     const translated =
       parsed && typeof parsed === "object" && "segments" in parsed
         ? (parsed as { segments: unknown }).segments
@@ -64,5 +65,26 @@ export class OllamaTranslator implements Translator {
     }
 
     return translated as TranslationInput[];
+  }
+
+  async batchTranslate(
+    segments: TranslationInput[],
+    options: TranslationOptions,
+  ): Promise<TranslationInput[]> {
+    try {
+      return await this.translateBatchItems(segments, options);
+    } catch (error) {
+      if (segments.length === 1) {
+        throw error;
+      }
+
+      const translated: TranslationInput[] = [];
+      for (const segment of segments) {
+        const [item] = await this.translateBatchItems([segment], options);
+        translated.push(item);
+      }
+
+      return translated;
+    }
   }
 }

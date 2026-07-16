@@ -62,6 +62,61 @@ function offlineMessage(baseURL: string): string {
   return `Không kết nối được Ollama tại ${baseURL}. Hãy mở Ollama rồi thử lại.`;
 }
 
+function stripMarkdownFences(content: string): string {
+  const fencedMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+    ?? content.match(/~~~(?:json)?\s*([\s\S]*?)\s*~~~/i);
+
+  return fencedMatch ? fencedMatch[1].trim() : content;
+}
+
+function extractJsonString(content: string): string | null {
+  const normalized = stripMarkdownFences(content).trim();
+
+  try {
+    JSON.parse(normalized);
+    return normalized;
+  } catch {
+    const start = normalized.search(/[\[{]/);
+    if (start === -1) {
+      return null;
+    }
+
+    const stack: string[] = [];
+    for (let index = start; index < normalized.length; index += 1) {
+      const char = normalized[index];
+
+      if (char === "{" || char === "[") {
+        stack.push(char);
+      } else if (char === "}" || char === "]") {
+        const last = stack[stack.length - 1];
+        if (
+          (char === "}" && last === "{") ||
+          (char === "]" && last === "[")
+        ) {
+          stack.pop();
+          if (stack.length === 0) {
+            return normalized.slice(start, index + 1).trim();
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+}
+
+function normalizeOllamaResponseContent(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return content.join("");
+  }
+
+  return String(content ?? "");
+}
+
 export function getLocalAIConfig(): Required<OllamaClientOptions> {
   return {
     baseURL: normalizeBaseURL(
@@ -152,9 +207,14 @@ export class OllamaClient {
     }
 
     const content = await this.requestWithRetry(options);
+    const jsonString = extractJsonString(content);
+
+    if (!jsonString) {
+      throw new Error("Ollama trả về dữ liệu không phải JSON hợp lệ.");
+    }
 
     try {
-      return JSON.parse(content) as unknown;
+      return JSON.parse(jsonString) as unknown;
     } catch {
       throw new Error("Ollama trả về dữ liệu không phải JSON hợp lệ.");
     }
@@ -204,9 +264,11 @@ export class OllamaClient {
           lastError = new Error(`Ollama tạm thời lỗi HTTP ${response.status}.`);
         } else {
           const body = (await response.json()) as OllamaChatResponse;
-          const content = body.choices?.[0]?.message?.content;
+          const content = normalizeOllamaResponseContent(
+            body.choices?.[0]?.message?.content,
+          );
 
-          if (!content) {
+          if (!content.trim()) {
             throw new Error("Ollama không trả về nội dung.");
           }
 

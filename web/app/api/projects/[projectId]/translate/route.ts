@@ -6,6 +6,7 @@ import { getTranslationLanguage } from "@/lib/translation/languages";
 import { translateBatchWithCache } from "@/lib/translation/cache";
 import {
   getProjectRoot,
+  loadProjectWorkspace,
   saveTranslatedSubtitles,
 } from "@/lib/storage";
 import { authorizeProject } from "@/lib/services/access-service";
@@ -19,9 +20,7 @@ type RouteContext = {
 };
 
 function parseBody(body: unknown) {
-  if (!body || typeof body !== "object") {
-    return null;
-  }
+  if (!body || typeof body !== "object") return null;
 
   const { sourceLanguage, targetLanguage, segments } = body as Record<
     string,
@@ -31,8 +30,8 @@ function parseBody(body: unknown) {
   if (
     typeof targetLanguage !== "string" ||
     !getTranslationLanguage(targetLanguage) ||
-    !Array.isArray(segments) ||
-    !segments.every(isSubtitleSegment)
+    (segments !== undefined &&
+      (!Array.isArray(segments) || !segments.every(isSubtitleSegment)))
   ) {
     return null;
   }
@@ -41,7 +40,7 @@ function parseBody(body: unknown) {
     sourceLanguage:
       typeof sourceLanguage === "string" ? sourceLanguage : "auto",
     targetLanguage,
-    segments,
+    segments: Array.isArray(segments) ? segments : undefined,
   };
 }
 
@@ -49,8 +48,12 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     const { projectId } = await context.params;
     if (!(await authorizeProject(projectId))) {
-      return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
+      return NextResponse.json(
+        { success: false, error: "Not found" },
+        { status: 404 },
+      );
     }
+
     const parsed = parseBody(await request.json());
     const root = getProjectRoot(projectId);
 
@@ -68,24 +71,47 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
+    const workspace = parsed.segments
+      ? null
+      : await loadProjectWorkspace(projectId);
+    const sourceSegments = parsed.segments ?? workspace?.segments;
+
+    if (!sourceSegments?.length) {
+      return NextResponse.json(
+        { success: false, error: "Project chưa có phụ đề gốc." },
+        { status: 409 },
+      );
+    }
+
     const language = getTranslationLanguage(parsed.targetLanguage);
     const segments = await translateBatchWithCache(
       root,
       language?.name ?? parsed.targetLanguage,
-      parsed.segments,
+      sourceSegments,
       request.signal,
       parsed.sourceLanguage,
     );
 
+    await saveTranslatedSubtitles(projectId, parsed.targetLanguage, segments);
+
     return NextResponse.json({ success: true, segments });
   } catch (error) {
     logger.error("translation.failed", error);
+
+    const message =
+      error instanceof Error ? error.message : "Không thể dịch phụ đề.";
+    const clientError =
+      error instanceof Error &&
+      /(Kết quả dịch không giữ nguyên cấu trúc phụ đề|JSON hợp lệ|Ollama)/i.test(
+        error.message,
+      );
+
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Không thể dịch phụ đề.",
+        error: message,
       },
-      { status: 500 },
+      { status: clientError ? 502 : 500 },
     );
   }
 }
@@ -94,11 +120,14 @@ export async function PUT(request: Request, context: RouteContext) {
   try {
     const { projectId } = await context.params;
     if (!(await authorizeProject(projectId))) {
-      return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
+      return NextResponse.json(
+        { success: false, error: "Not found" },
+        { status: 404 },
+      );
     }
-    const parsed = parseBody(await request.json());
 
-    if (!parsed) {
+    const parsed = parseBody(await request.json());
+    if (!parsed?.segments) {
       return NextResponse.json(
         { success: false, error: "Bản dịch không hợp lệ." },
         { status: 400 },
@@ -106,7 +135,6 @@ export async function PUT(request: Request, context: RouteContext) {
     }
 
     const validationError = validateSegments(parsed.segments);
-
     if (validationError) {
       return NextResponse.json(
         { success: false, error: validationError },
