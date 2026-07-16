@@ -460,7 +460,7 @@ const VideoUploader = forwardRef<VideoUploaderHandle, VideoUploaderProps>(functi
             <BurnButton
   video={selectedFile}
   srtFilename={srtFilename}
-  srtContent={generatedSrt}
+  segments={segments}
 />
           </div>
         </section>

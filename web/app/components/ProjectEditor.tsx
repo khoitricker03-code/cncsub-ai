@@ -9,6 +9,7 @@ import RewriteToolbar from "./RewriteToolbar";
 import ExportMenu from "./ExportMenu";
 import TranslationToolbar, { type SubtitleTrack } from "./TranslationToolbar";
 import VideoPlayer from "./VideoPlayer";
+import BurnButton from "./BurnButton";
 import { useSubtitleAutosave } from "@/app/hooks/useSubtitleAutosave";
 import { useUndoRedo } from "@/app/hooks/useUndoRedo";
 import { useRewrite } from "@/app/hooks/useRewrite";
@@ -502,6 +503,15 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
           setSelectedSegmentId(imported[0]?.id ?? null);
         }}
       />
+
+      <section className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+        <h2 className="mb-3 font-semibold">Burn phụ đề đang chỉnh sửa</h2>
+        <BurnButton
+          videoUrl={`/api/projects/${projectId}/video`}
+          srtFilename={activeTrack === "translation" ? "translated.srt" : "subtitle.srt"}
+          segments={segments}
+        />
+      </section>
 
       <details className="rounded-xl border border-gray-800 bg-gray-900 p-4">
         <summary className="cursor-pointer font-semibold">

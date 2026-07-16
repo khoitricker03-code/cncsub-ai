@@ -13,7 +13,7 @@ import {
   getTranslationModel,
 } from "../lib/ai/ollama-client.ts";
 import { isDevelopmentAuthBypassEnabled } from "../lib/services/auth-flags.ts";
-import type { SubtitleSegment } from "../lib/subtitles.ts";
+import { buildSrt, type SubtitleSegment } from "../lib/subtitles.ts";
 import {
   addSegment,
   deleteSegment,
@@ -183,6 +183,21 @@ test("segment structural edits preserve stable unique ids and timing", () => {
 
   const deleted = deleteSegment(source, 4);
   assert.deepEqual(deleted.segments.map((item) => item.id), [9]);
+});
+
+test("burn SRT generation uses current edited segment state", () => {
+  const original: SubtitleSegment[] = [
+    { id: 1, start: 0, end: 2, text: "Original transcript" },
+    { id: 2, start: 2, end: 4, text: "Delete this" },
+  ];
+  const edited = deleteSegment([
+    { ...original[0], start: 0.25, end: 2.75, text: "EDITED BEFORE BURN" },
+    original[1],
+  ], 2).segments;
+  const srt = buildSrt(edited);
+  assert.match(srt, /00:00:00,250 --> 00:00:02,750/);
+  assert.match(srt, /EDITED BEFORE BURN/);
+  assert.doesNotMatch(srt, /Original transcript|Delete this/);
 });
 
 test("cache keys are deterministic and namespace-aware", () => {
