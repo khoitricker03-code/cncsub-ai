@@ -11,7 +11,9 @@ import {
   OllamaClient,
   getRewriteModel,
   getTranslationModel,
+  parseOllamaJSON,
 } from "../lib/ai/ollama-client.ts";
+import { OllamaTranslator } from "../lib/translation/ollama-translator.ts";
 import { isDevelopmentAuthBypassEnabled } from "../lib/services/auth-flags.ts";
 import { buildSrt, type SubtitleSegment } from "../lib/subtitles.ts";
 import {
@@ -112,6 +114,41 @@ test("Ollama client retries temporary chat failures", async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("Ollama JSON parser accepts markdown fences and surrounding prose", () => {
+  assert.deepEqual(parseOllamaJSON('```json\n{"segments":[]}\n```'), { segments: [] });
+  assert.deepEqual(parseOllamaJSON('Here is the result: {"segments":[{"id":1,"text":"a } brace"}]} Done.'), {
+    segments: [{ id: 1, text: "a } brace" }],
+  });
+});
+
+test("Ollama translator falls back per segment and preserves order", async () => {
+  const originalFetch = globalThis.fetch;
+  let chatCalls = 0;
+  globalThis.fetch = async (input) => {
+    if (String(input).endsWith("/models")) return Response.json({ data: [{ id: "qwen2.5:7b" }] });
+    chatCalls += 1;
+    const responses = [
+      { segments: [{ id: 99, text: "bad" }] },
+      { segments: [] },
+      { segments: [{ id: 1, text: "Xin chào\nthế giới" }] },
+      { segments: [{ id: 999, text: "bad" }] },
+      { segments: [] },
+    ];
+    return Response.json({ choices: [{ message: { content: JSON.stringify(responses[chatCalls - 1]) } }] });
+  };
+  try {
+    const result = await new OllamaTranslator(new OllamaClient()).batchTranslate(
+      [{ id: 1, text: "Hello\nworld" }, { id: 2, text: "Keep me" }],
+      { targetLanguage: "Vietnamese" },
+    );
+    assert.deepEqual(result, [
+      { id: 1, text: "Xin chào\nthế giới" },
+      { id: 2, text: "Keep me" },
+    ]);
+    assert.equal(chatCalls, 5);
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test("authentication is always bypassed in development only", () => {

@@ -62,6 +62,47 @@ function offlineMessage(baseURL: string): string {
   return `Không kết nối được Ollama tại ${baseURL}. Hãy mở Ollama rồi thử lại.`;
 }
 
+export function parseOllamaJSON(content: string): unknown {
+  const stripped = content
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
+  try {
+    return JSON.parse(stripped) as unknown;
+  } catch {
+    // Qwen occasionally surrounds valid JSON with a short explanation. Find
+    // the first balanced object/array without being confused by JSON strings.
+  }
+
+  for (let start = 0; start < stripped.length; start += 1) {
+    if (stripped[start] !== "{" && stripped[start] !== "[") continue;
+    const stack: string[] = [];
+    let quoted = false;
+    let escaped = false;
+    for (let index = start; index < stripped.length; index += 1) {
+      const character = stripped[index];
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (character === "\\") escaped = true;
+        else if (character === '"') quoted = false;
+        continue;
+      }
+      if (character === '"') { quoted = true; continue; }
+      if (character === "{" || character === "[") stack.push(character);
+      else if (character === "}" || character === "]") {
+        const opening = stack.pop();
+        if ((opening === "{" && character !== "}") || (opening === "[" && character !== "]")) break;
+        if (stack.length === 0) {
+          try { return JSON.parse(stripped.slice(start, index + 1)) as unknown; } catch { break; }
+        }
+      }
+    }
+  }
+  throw new Error("Ollama trả về dữ liệu không phải JSON hợp lệ.");
+}
+
 export function getLocalAIConfig(): Required<OllamaClientOptions> {
   return {
     baseURL: normalizeBaseURL(
@@ -151,13 +192,24 @@ export class OllamaClient {
       throw new Error(health.error ?? offlineMessage(this.baseURL));
     }
 
-    const content = await this.requestWithRetry(options);
-
-    try {
-      return JSON.parse(content) as unknown;
-    } catch {
-      throw new Error("Ollama trả về dữ liệu không phải JSON hợp lệ.");
+    let parseError: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const content = await this.requestWithRetry(
+        attempt === 0
+          ? options
+          : {
+              ...options,
+              temperature: 0,
+              system: `${options.system}\nYour previous response was invalid. Output exactly one JSON object, without markdown fences, commentary, or trailing text.`,
+            },
+      );
+      try {
+        return parseOllamaJSON(content);
+      } catch (error) {
+        parseError = error;
+      }
     }
+    throw parseError instanceof Error ? parseError : new Error("Ollama trả về JSON không hợp lệ.");
   }
 
   private async requestWithRetry(options: OllamaChatOptions): Promise<string> {
