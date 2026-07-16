@@ -70,7 +70,6 @@ export async function POST(request: Request) {
     if (video.size > MAX_VIDEO_SIZE) return NextResponse.json({ success: false, error: "Video phải nhỏ hơn hoặc bằng 500 MB." } satisfies BurnResponse, { status: 413 });
     if (subtitle.size > MAX_SUBTITLE_SIZE) return NextResponse.json({ success: false, error: "File SRT quá lớn." } satisfies BurnResponse, { status: 413 });
 
-    const persist = formData.get("projectId") || formData.get("persist");
     const paths = createJobPaths(video.name);
     workDir = paths.workDir;
     await fs.mkdir(workDir, { recursive: true });
@@ -85,8 +84,9 @@ export async function POST(request: Request) {
     if (projectId) {
       const jobId = `burn-job-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       // lazy import global job map
-      (global as any).__burnJobs = (global as any).__burnJobs || new Map();
-      const jobMap: Map<string, any> = (global as any).__burnJobs;
+      type BurnJob = { status: string; progress: number; error: string | null; renderedPath?: string };
+      (global as unknown as { __burnJobs?: Map<string, BurnJob> }).__burnJobs = (global as unknown as { __burnJobs?: Map<string, BurnJob> }).__burnJobs || new Map();
+      const jobMap = (global as unknown as { __burnJobs: Map<string, BurnJob> }).__burnJobs;
 
       jobMap.set(jobId, { status: "running", progress: 0, error: null });
 
@@ -179,7 +179,8 @@ export async function GET(request: Request) {
     const jobId = url.searchParams.get("jobId");
     if (!jobId) return NextResponse.json({ success: false, error: "Missing jobId" }, { status: 400 });
 
-    const jobMap: Map<string, any> = (global as any).__burnJobs || new Map();
+    type BurnJob = { status: string; progress: number; error: string | null; renderedPath?: string };
+    const jobMap = (global as unknown as { __burnJobs?: Map<string, BurnJob> }).__burnJobs || new Map();
     const entry = jobMap.get(jobId);
     if (!entry) return NextResponse.json({ success: false, error: "Job not found" }, { status: 404 });
 

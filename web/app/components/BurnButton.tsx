@@ -100,7 +100,7 @@ export default function BurnButton({
       }
 
       // If project-based, server returns JSON with jobId
-      const maybeJson = await response.clone().json().catch(() => null) as any;
+      const maybeJson = await response.clone().json().catch(() => null) as unknown as { jobId?: string };
 
       if (projectId && maybeJson?.jobId) {
         const jobId = String(maybeJson.jobId);
@@ -110,7 +110,7 @@ export default function BurnButton({
           try {
             const statusRes = await fetch(`/api/burn?jobId=${encodeURIComponent(jobId)}`);
             if (!statusRes.ok) continue;
-            const statusJson = await statusRes.json().catch(() => null) as any;
+            const statusJson = await statusRes.json().catch(() => null) as unknown as { success: boolean; status: string; progress: number; error: string | null };
             if (!statusJson?.success) continue;
             const { status, progress, error: jobError } = statusJson;
             setDownloadProgress(Math.max(0, Math.min(100, Number(progress ?? 0))));
