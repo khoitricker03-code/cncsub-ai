@@ -18,9 +18,9 @@ export default function BurnButton({
   const [fontSize, setFontSize] = useState(42);
   const [position, setPosition] = useState(2);
   const [hardware, setHardware] = useState<"auto" | "nvenc" | "software">("auto");
-  const controllerRef = useRef<AbortController | null>(null);
-
+  const controllerRef = useRef<AbortController | null>(null)
   const burnVideo = async () => {
+    console.log("🔥 Burn button clicked");
     if (!video) {
       alert("Chưa có video.");
       return;
@@ -57,7 +57,7 @@ export default function BurnButton({
         outline: 3,
         shadow: 1,
       }));
-
+console.log("🔥 Sending request to /api/burn");
       const response = await fetch("/api/burn", {
         method: "POST",
         body: formData,
