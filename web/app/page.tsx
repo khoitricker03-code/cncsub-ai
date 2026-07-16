@@ -29,9 +29,12 @@ export default async function Home() {
             <UserMenu email={session?.user.email} />
           )}
 
-          <button className="mb-6 w-full rounded-xl bg-blue-600 py-3 font-semibold hover:bg-blue-700">
+          <a
+            href="#upload-workspace"
+            className="mb-6 block w-full rounded-xl bg-blue-600 py-3 text-center font-semibold hover:bg-blue-700"
+          >
             + New Project
-          </button>
+          </a>
 
           <ProjectList />
 
@@ -49,7 +52,10 @@ export default async function Home() {
             AI tạo phụ đề • Dịch • Lồng tiếng
           </p>
 
-          <div className="rounded-2xl border border-gray-800 bg-gray-900 p-8">
+          <div
+            id="upload-workspace"
+            className="scroll-mt-8 rounded-2xl border border-gray-800 bg-gray-900 p-8"
+          >
 
             <UploadWorkspace />
 
