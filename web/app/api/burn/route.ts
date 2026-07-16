@@ -8,7 +8,7 @@ import { NextResponse } from "next/server";
 
 import { burnSubtitle, type SubtitleStyle } from "@/lib/ffmpeg";
 import { logger } from "@/lib/logger";
-import { saveRenderedVideo } from "@/lib/storage";
+import { saveRenderedVideo, getProjectVideoPath } from "@/lib/storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,23 +64,65 @@ export async function POST(request: Request) {
     const video = formData.get("video");
     const subtitle = formData.get("subtitle");
     const hardware = formData.get("hardwareAcceleration");
-
-    if (!(video instanceof File) || video.size === 0) return NextResponse.json({ success: false, error: "Thiếu video." } satisfies BurnResponse, { status: 400 });
-    if (!(subtitle instanceof File) || subtitle.size === 0) return NextResponse.json({ success: false, error: "Thiếu file SRT." } satisfies BurnResponse, { status: 400 });
-    if (video.size > MAX_VIDEO_SIZE) return NextResponse.json({ success: false, error: "Video phải nhỏ hơn hoặc bằng 500 MB." } satisfies BurnResponse, { status: 413 });
-    if (subtitle.size > MAX_SUBTITLE_SIZE) return NextResponse.json({ success: false, error: "File SRT quá lớn." } satisfies BurnResponse, { status: 413 });
-
-    const paths = createJobPaths(video.name);
-    workDir = paths.workDir;
-    await fs.mkdir(workDir, { recursive: true });
-    await Promise.all([
-      saveUploadedFile(video, paths.inputVideo),
-      saveUploadedFile(subtitle, paths.subtitleFile),
-    ]);
-
-    // If caller requests persistence into a project, run burn in background and return a job id.
     const projectId = typeof formData.get("projectId") === "string" ? String(formData.get("projectId")) : null;
 
+    // Determine the input video path
+    let inputVideoPath: string | null = null;
+    let videoName = "input.mp4";
+
+    if (projectId) {
+      // When projectId is provided, resolve the project's stored video
+      const storedPath = await getProjectVideoPath(projectId);
+      if (!storedPath) {
+        return NextResponse.json({ success: false, error: "Video của dự án không tồn tại." } satisfies BurnResponse, { status: 404 });
+      }
+
+      // Verify the project video file exists and is readable
+      try {
+        await fs.access(storedPath);
+        inputVideoPath = storedPath;
+        videoName = path.basename(storedPath);
+      } catch (err) {
+        logger.error("project.video.access_failed", err);
+        return NextResponse.json({ success: false, error: "Không thể truy cập video của dự án." } satisfies BurnResponse, { status: 404 });
+      }
+    } else {
+      // Fall back to uploaded video file
+      if (!(video instanceof File) || video.size === 0) {
+        return NextResponse.json({ success: false, error: "Thiếu video." } satisfies BurnResponse, { status: 400 });
+      }
+      if (video.size > MAX_VIDEO_SIZE) {
+        return NextResponse.json({ success: false, error: "Video phải nhỏ hơn hoặc bằng 500 MB." } satisfies BurnResponse, { status: 413 });
+      }
+      videoName = video.name;
+    }
+
+    // Validate subtitle
+    if (!(subtitle instanceof File) || subtitle.size === 0) {
+      return NextResponse.json({ success: false, error: "Thiếu file SRT." } satisfies BurnResponse, { status: 400 });
+    }
+    if (subtitle.size > MAX_SUBTITLE_SIZE) {
+      return NextResponse.json({ success: false, error: "File SRT quá lớn." } satisfies BurnResponse, { status: 413 });
+    }
+
+    // Create temp work directory
+    const paths = createJobPaths(videoName);
+    workDir = paths.workDir;
+    await fs.mkdir(workDir, { recursive: true });
+
+    // Copy or save video to temp directory
+    if (inputVideoPath) {
+      // Copy project video to temp directory after verification
+      await fs.copyFile(inputVideoPath, paths.inputVideo);
+    } else {
+      // Save uploaded video to temp directory
+      await saveUploadedFile(video as File, paths.inputVideo);
+    }
+
+    // Save subtitle to temp directory
+    await saveUploadedFile(subtitle as File, paths.subtitleFile);
+
+    // If caller requests persistence into a project, run burn in background and return a job id.
     if (projectId) {
       const jobId = `burn-job-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       // lazy import global job map
@@ -128,10 +170,12 @@ export async function POST(request: Request) {
             entry.error = err instanceof Error ? err.message : String(err);
           }
         } finally {
-          // cleanup work dir
+          // cleanup work dir after ffmpeg fully exits
           try {
             await fs.rm(paths.workDir, { recursive: true, force: true });
-          } catch {}
+          } catch (err) {
+            logger.error("workdir.cleanup_failed", err);
+          }
         }
       })();
 
@@ -169,7 +213,13 @@ export async function POST(request: Request) {
     const message = error instanceof Error ? error.message : "Không thể burn phụ đề.";
     return NextResponse.json({ success: false, error: message } satisfies BurnResponse, { status: 500 });
   } finally {
-    if (workDir && !responseOwnsCleanup) await fs.rm(workDir, { recursive: true, force: true });
+    if (workDir && !responseOwnsCleanup) {
+      try {
+        await fs.rm(workDir, { recursive: true, force: true });
+      } catch (err) {
+        logger.error("workdir.cleanup_failed", err);
+      }
+    }
   }
 }
 

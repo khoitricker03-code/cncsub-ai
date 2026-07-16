@@ -62,9 +62,14 @@ export default function BurnButton({
     controllerRef.current = new AbortController();
 
     try {
-      const sourceVideo = await loadVideo(controllerRef.current.signal);
+      const sourceVideo = projectId ? null : await loadVideo(controllerRef.current.signal);
       const formData = new FormData();
-      formData.append("video", sourceVideo);
+
+      // Only upload video if not using project-based burn
+      if (!projectId && sourceVideo) {
+        formData.append("video", sourceVideo);
+      }
+
       formData.append(
         "subtitle",
         new File([new Blob(["\uFEFF", latestSrt])], srtFilename, {
