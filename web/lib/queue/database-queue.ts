@@ -1,7 +1,7 @@
-import type { JobType, Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
-import type { JobHandler, JobQueue } from "./types";
+import type { JobHandler, JobQueue, JobRecord, JobType } from "./types";
 
 export class DatabaseJobQueue implements JobQueue {
   private readonly handlers = new Map<JobType, JobHandler>();
@@ -93,8 +93,6 @@ export class DatabaseJobQueue implements JobQueue {
       payload: job.payload as object,
     });
   }
+  async get(userId: string, jobId: string) { return await prisma.job.findFirst({ where: { id: jobId, userId } }) as unknown as JobRecord | null; }
+  async list(userId: string) { return await prisma.job.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 50 }) as unknown as JobRecord[]; }
 }
-
-const globalQueue = globalThis as unknown as { cncsubQueue?: DatabaseJobQueue };
-export const jobQueue = globalQueue.cncsubQueue ?? new DatabaseJobQueue();
-if (process.env.NODE_ENV !== "production") globalQueue.cncsubQueue = jobQueue;

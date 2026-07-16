@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { jobQueue } from "@/lib/queue";
 import { getCurrentSession } from "@/lib/services/auth-context";
 
 type Context = { params: Promise<{ jobId: string }> };
@@ -12,7 +12,7 @@ export async function GET(_request: Request, { params }: Context) {
     async start(controller) {
       const encoder = new TextEncoder();
       const tick = async () => {
-        const job = await prisma.job.findFirst({ where: { id: jobId, userId } });
+        const job = await jobQueue.get(userId, jobId);
         if (!job) {
           controller.close();
           return;

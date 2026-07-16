@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { isValidTextTransform } from "../lib/ai-validation.ts";
 import { createContentCacheKey } from "../lib/cache-key.ts";
@@ -18,6 +21,7 @@ import {
   mergeWithNext,
   splitSegment,
 } from "../lib/segment-editor.ts";
+import { LocalJobQueue } from "../lib/queue/local-queue.ts";
 
 const segments: SubtitleSegment[] = [
   { id: 1, start: 0, end: 1.5, text: "Hello\nworld" },
@@ -203,4 +207,21 @@ test("VTT and ASS exports round-trip multiline subtitle timing", () => {
     assert.equal(imported[0].text, segments[0].text);
     assert.equal(imported[1].end, segments[1].end);
   }
+});
+
+test("local queue persists progress and completed jobs without a database", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "cncsub-jobs-"));
+  try {
+    const queue = new LocalJobQueue(directory);
+    queue.register("EXPORT", async ({ reportProgress }) => { await reportProgress(50); return { filename: "subtitle.srt" }; });
+    const { id } = await queue.enqueue({ userId: "local", type: "EXPORT", payload: {} });
+    let job = await queue.get("local", id);
+    for (let index = 0; index < 30 && job?.status !== "COMPLETED"; index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      job = await queue.get("local", id);
+    }
+    assert.equal(job?.status, "COMPLETED");
+    assert.equal(job?.progress, 100);
+    assert.equal((job?.result as { filename?: string }).filename, "subtitle.srt");
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });

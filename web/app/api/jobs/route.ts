@@ -1,15 +1,13 @@
-import { JobType } from "@prisma/client";
 import { NextResponse } from "next/server";
 
-import { jobQueue } from "@/lib/queue/database-queue";
-import { prisma } from "@/lib/prisma";
+import { JOB_TYPES, jobQueue, type JobType } from "@/lib/queue";
 import { getCurrentSession } from "@/lib/services/auth-context";
 
 export async function GET() {
   const session = await getCurrentSession();
   const userId = session?.user.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const jobs = await prisma.job.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 50 });
+  const jobs = await jobQueue.list(userId);
   return NextResponse.json({ success: true, jobs });
 }
 
@@ -18,7 +16,7 @@ export async function POST(request: Request) {
   const userId = session?.user.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = (await request.json()) as { type?: string; projectId?: string; payload?: object };
-  if (!body.type || !Object.values(JobType).includes(body.type as JobType)) {
+  if (!body.type || !JOB_TYPES.includes(body.type as JobType)) {
     return NextResponse.json({ error: "Invalid job type" }, { status: 400 });
   }
   const job = await jobQueue.enqueue({
