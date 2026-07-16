@@ -6,6 +6,7 @@ import { buildSrt, validateSegments, type SubtitleSegment } from "@/lib/subtitle
 type BurnButtonProps = {
   video?: File | null;
   videoUrl?: string;
+  projectId?: string;
   srtFilename: string;
   segments: SubtitleSegment[];
 };
@@ -13,6 +14,7 @@ type BurnButtonProps = {
 export default function BurnButton({
   video,
   videoUrl,
+  projectId,
   srtFilename,
   segments,
 }: BurnButtonProps) {
@@ -24,7 +26,7 @@ export default function BurnButton({
   const controllerRef = useRef<AbortController | null>(null);
 
   const burnVideo = async () => {
-    if (!video && !videoUrl) {
+    if (!video && !videoUrl && !projectId) {
       alert("Chưa có video.");
       return;
     }
@@ -50,13 +52,17 @@ export default function BurnButton({
     try {
       const formData = new FormData();
       let videoFile = video ?? null;
-      if (!videoFile && videoUrl) {
+      if (projectId) {
+        formData.append("projectId", projectId);
+      } else if (!videoFile && videoUrl) {
         const videoResponse = await fetch(videoUrl, { signal: controllerRef.current.signal });
         if (!videoResponse.ok) throw new Error("Không thể tải video của project.");
         videoFile = new File([await videoResponse.blob()], "input.mp4", { type: "video/mp4" });
       }
-      if (!videoFile) throw new Error("Chưa có video.");
-      formData.append("video", videoFile);
+      if (!projectId) {
+        if (!videoFile) throw new Error("Chưa có video.");
+        formData.append("video", videoFile);
+      }
 
       const subtitle = new File(
         [new Blob(["\uFEFF", srtContent])],
@@ -140,7 +146,7 @@ export default function BurnButton({
       <select aria-label="Bộ mã hóa" value={hardware} onChange={(event) => setHardware(event.target.value as typeof hardware)} className="rounded bg-gray-800 px-2 py-1 text-sm">
         <option value="auto">GPU tự động</option><option value="nvenc">NVIDIA NVENC</option><option value="software">CPU</option>
       </select>
-      <button type="button" onClick={burnVideo} disabled={loading || (!video && !videoUrl) || segments.length === 0} className="rounded-lg bg-green-600 px-5 py-3 font-semibold transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50">
+      <button type="button" onClick={burnVideo} disabled={loading || (!video && !videoUrl && !projectId) || segments.length === 0} className="rounded-lg bg-green-600 px-5 py-3 font-semibold transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50">
         {loading ? "Đang tạo video..." : "🎬 Tạo video có phụ đề"}
       </button>
       {loading ? <button type="button" onClick={() => controllerRef.current?.abort()} className="rounded-lg bg-red-700 px-3 py-3 font-semibold">Hủy</button> : null}

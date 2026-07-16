@@ -8,6 +8,8 @@ import { NextResponse } from "next/server";
 
 import { burnSubtitle, type SubtitleStyle } from "@/lib/ffmpeg";
 import { logger } from "@/lib/logger";
+import { authorizeProject } from "@/lib/services/access-service";
+import { getProjectVideoPath } from "@/lib/storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +26,7 @@ async function saveUploadedFile(file: File, outputPath: string) {
   );
 }
 
-function createJobPaths(videoName: string) {
+function createJobPaths(videoName = "input.mp4") {
   const jobId = `burn-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const workDir = path.join(os.tmpdir(), jobId);
   const extension = path.extname(videoName).toLowerCase() || ".mp4";
@@ -61,24 +63,43 @@ export async function POST(request: Request) {
   try {
     const formData = await request.formData();
     const video = formData.get("video");
+    const projectId = formData.get("projectId");
     const subtitle = formData.get("subtitle");
     const hardware = formData.get("hardwareAcceleration");
 
-    if (!(video instanceof File) || video.size === 0) return NextResponse.json({ success: false, error: "Thiếu video." } satisfies BurnResponse, { status: 400 });
+    const hasProject = typeof projectId === "string" && projectId.length > 0;
+    const hasUpload = video instanceof File && video.size > 0;
+    if (!hasProject && !hasUpload) return NextResponse.json({ success: false, error: "Thiếu video hoặc project." } satisfies BurnResponse, { status: 400 });
     if (!(subtitle instanceof File) || subtitle.size === 0) return NextResponse.json({ success: false, error: "Thiếu file SRT." } satisfies BurnResponse, { status: 400 });
-    if (video.size > MAX_VIDEO_SIZE) return NextResponse.json({ success: false, error: "Video phải nhỏ hơn hoặc bằng 500 MB." } satisfies BurnResponse, { status: 413 });
+    if (hasUpload && video.size > MAX_VIDEO_SIZE) return NextResponse.json({ success: false, error: "Video phải nhỏ hơn hoặc bằng 500 MB." } satisfies BurnResponse, { status: 413 });
     if (subtitle.size > MAX_SUBTITLE_SIZE) return NextResponse.json({ success: false, error: "File SRT quá lớn." } satisfies BurnResponse, { status: 413 });
 
-    const paths = createJobPaths(video.name);
+    let inputVideo: string | null = null;
+    if (hasProject) {
+      if (!(await authorizeProject(projectId))) {
+        return NextResponse.json({ success: false, error: "Không tìm thấy project." } satisfies BurnResponse, { status: 404 });
+      }
+      const storedVideo = await getProjectVideoPath(projectId);
+      if (!storedVideo) {
+        return NextResponse.json({ success: false, error: "Không tìm thấy video gốc của project." } satisfies BurnResponse, { status: 404 });
+      }
+      inputVideo = storedVideo;
+    }
+
+    const paths = createJobPaths(hasUpload ? video.name : undefined);
     workDir = paths.workDir;
     await fs.mkdir(workDir, { recursive: true });
-    await Promise.all([
-      saveUploadedFile(video, paths.inputVideo),
-      saveUploadedFile(subtitle, paths.subtitleFile),
-    ]);
+    await saveUploadedFile(subtitle, paths.subtitleFile);
+    if (!hasProject && hasUpload) {
+      await saveUploadedFile(video, paths.inputVideo);
+      inputVideo = paths.inputVideo;
+    }
+    if (!inputVideo) {
+      throw new Error("Không thể xác định video đầu vào.");
+    }
 
     await burnSubtitle({
-      inputVideo: paths.inputVideo,
+      inputVideo,
       subtitleFile: paths.subtitleFile,
       outputVideo: paths.outputVideo,
       hardwareAcceleration: hardware === "nvenc" || hardware === "software" ? hardware : "auto",

@@ -508,7 +508,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       <section className="rounded-xl border border-gray-800 bg-gray-900 p-4">
         <h2 className="mb-3 font-semibold">Burn phụ đề đang chỉnh sửa</h2>
         <BurnButton
-          videoUrl={`/api/projects/${projectId}/video`}
+          projectId={projectId}
           srtFilename={activeTrack === "translation" ? "translated.srt" : "subtitle.srt"}
           segments={segments}
         />
