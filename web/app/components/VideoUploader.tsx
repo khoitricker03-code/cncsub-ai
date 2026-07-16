@@ -21,6 +21,7 @@ type TranscribeResult = {
   srt?: string;
   segments?: SubtitleSegment[];
   error?: string;
+  projectId?: string;
 };
 
 function formatDisplayTime(seconds: number): string {
@@ -134,14 +135,16 @@ function downloadTextFile(
 
 export type VideoUploaderHandle = {
   transcribeSelected: () => void;
+  translateSelected: (sourceLanguage: string, targetLanguage: string) => Promise<void>;
 };
 
 type VideoUploaderProps = {
   onSelectionChange?: (hasSelection: boolean) => void;
+  onBusyChange?: (busy: boolean) => void;
 };
 
 const VideoUploader = forwardRef<VideoUploaderHandle, VideoUploaderProps>(function VideoUploader(
-  { onSelectionChange },
+  { onSelectionChange, onBusyChange },
   ref,
 ) {
   const [loading, setLoading] = useState(false);
@@ -150,6 +153,10 @@ const VideoUploader = forwardRef<VideoUploaderHandle, VideoUploaderProps>(functi
     useState<File | null>(null);
 
   const [segments, setSegments] = useState<SubtitleSegment[]>([]);
+  const [originalSegments, setOriginalSegments] = useState<SubtitleSegment[]>([]);
+  const [translatedSegments, setTranslatedSegments] = useState<SubtitleSegment[]>([]);
+  const [showingTranslation, setShowingTranslation] = useState(false);
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [language, setLanguage] = useState("");
   const [srtFilename, setSrtFilename] =
     useState("subtitle.srt");
@@ -180,10 +187,17 @@ const VideoUploader = forwardRef<VideoUploaderHandle, VideoUploaderProps>(functi
           : segment,
       ),
     );
+    const updateTrack = (currentSegments: SubtitleSegment[]) =>
+      currentSegments.map((segment) =>
+        segment.id === segmentId ? { ...segment, text } : segment,
+      );
+    if (showingTranslation) setTranslatedSegments(updateTrack);
+    else setOriginalSegments(updateTrack);
   };
 
-  const transcribeVideo = async (file: File) => {
+  const transcribeVideo = useCallback(async (file: File): Promise<TranscribeResult> => {
     setLoading(true);
+    onBusyChange?.(true);
     setSegments([]);
     setLanguage("");
     setStatus("Đang tạo phụ đề bằng AI...");
@@ -215,6 +229,10 @@ const VideoUploader = forwardRef<VideoUploaderHandle, VideoUploaderProps>(functi
       }
 
       setSegments(result.segments);
+      setOriginalSegments(result.segments);
+      setTranslatedSegments([]);
+      setShowingTranslation(false);
+      setProjectId(result.projectId ?? null);
       setLanguage(result.language ?? "unknown");
       setSrtFilename(result.filename ?? "subtitle.srt");
       setTxtFilename(result.textFilename ?? "subtitle.txt");
@@ -224,6 +242,7 @@ const VideoUploader = forwardRef<VideoUploaderHandle, VideoUploaderProps>(functi
           result.language ?? "unknown"
         }`,
       );
+      return result;
     } catch (error) {
       const message =
         error instanceof Error
@@ -232,10 +251,12 @@ const VideoUploader = forwardRef<VideoUploaderHandle, VideoUploaderProps>(functi
 
       setStatus(`Lỗi: ${message}`);
       setSegments([]);
+      throw error;
     } finally {
       setLoading(false);
+      onBusyChange?.(false);
     }
-  };
+  }, [onBusyChange]);
 
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
@@ -248,6 +269,10 @@ const VideoUploader = forwardRef<VideoUploaderHandle, VideoUploaderProps>(functi
       setSelectedFile(file);
       setStatus("");
       setSegments([]);
+      setOriginalSegments([]);
+      setTranslatedSegments([]);
+      setShowingTranslation(false);
+      setProjectId(null);
       setLanguage("");
       onSelectionChange?.(true);
     },
@@ -256,9 +281,40 @@ const VideoUploader = forwardRef<VideoUploaderHandle, VideoUploaderProps>(functi
 
   useImperativeHandle(ref, () => ({
     transcribeSelected() {
-      if (selectedFile && !loading) void transcribeVideo(selectedFile);
+      if (selectedFile && !loading) void transcribeVideo(selectedFile).catch(() => undefined);
     },
-  }), [loading, selectedFile]);
+    async translateSelected(sourceLanguage, targetLanguage) {
+      if (!selectedFile || loading) return;
+      try {
+        const transcription = projectId
+          ? null
+          : await transcribeVideo(selectedFile);
+        const activeProjectId = projectId ?? transcription?.projectId;
+        if (!activeProjectId) throw new Error("Không thể xác định project để dịch.");
+        setLoading(true);
+        onBusyChange?.(true);
+        setStatus("Đang dịch phụ đề...");
+        const response = await fetch(`/api/projects/${activeProjectId}/translate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sourceLanguage, targetLanguage }),
+        });
+        const result = (await response.json()) as TranscribeResult;
+        if (!response.ok || !result.success || !result.segments?.length) {
+          throw new Error(result.error || "Không thể dịch phụ đề.");
+        }
+        setSegments(result.segments);
+        setTranslatedSegments(result.segments);
+        setShowingTranslation(true);
+        setStatus(`Dịch thành công — ${result.segments.length} câu.`);
+      } catch (error) {
+        setStatus(`Lỗi: ${error instanceof Error ? error.message : "Không thể dịch phụ đề."}`);
+      } finally {
+        setLoading(false);
+        onBusyChange?.(false);
+      }
+    },
+  }), [loading, onBusyChange, projectId, selectedFile, transcribeVideo]);
 
   const {
     getRootProps,
@@ -362,6 +418,12 @@ const VideoUploader = forwardRef<VideoUploaderHandle, VideoUploaderProps>(functi
                 {segments.length} câu
                 {language ? ` • Ngôn ngữ: ${language}` : ""}
               </p>
+              {translatedSegments.length > 0 ? (
+                <div className="mt-2 flex gap-2 text-xs">
+                  <button type="button" onClick={() => { setSegments(originalSegments); setShowingTranslation(false); }} className={`rounded px-2 py-1 ${showingTranslation ? "bg-gray-700" : "bg-blue-700"}`}>Original</button>
+                  <button type="button" onClick={() => { setSegments(translatedSegments); setShowingTranslation(true); }} className={`rounded px-2 py-1 ${showingTranslation ? "bg-purple-700" : "bg-gray-700"}`}>Translated</button>
+                </div>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap gap-2">

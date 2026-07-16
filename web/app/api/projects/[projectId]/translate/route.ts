@@ -6,6 +6,7 @@ import { getTranslationLanguage } from "@/lib/translation/languages";
 import { translateBatchWithCache } from "@/lib/translation/cache";
 import {
   getProjectRoot,
+  loadProjectWorkspace,
   saveTranslatedSubtitles,
 } from "@/lib/storage";
 import { authorizeProject } from "@/lib/services/access-service";
@@ -31,8 +32,8 @@ function parseBody(body: unknown) {
   if (
     typeof targetLanguage !== "string" ||
     !getTranslationLanguage(targetLanguage) ||
-    !Array.isArray(segments) ||
-    !segments.every(isSubtitleSegment)
+    (segments !== undefined &&
+      (!Array.isArray(segments) || !segments.every(isSubtitleSegment)))
   ) {
     return null;
   }
@@ -41,7 +42,7 @@ function parseBody(body: unknown) {
     sourceLanguage:
       typeof sourceLanguage === "string" ? sourceLanguage : "auto",
     targetLanguage,
-    segments,
+    segments: Array.isArray(segments) ? segments : undefined,
   };
 }
 
@@ -68,14 +69,24 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
+    const sourceSegments = parsed.segments ?? (await loadProjectWorkspace(projectId))?.segments;
+    if (!sourceSegments?.length) {
+      return NextResponse.json({ success: false, error: "Project chưa có phụ đề gốc." }, { status: 409 });
+    }
     const language = getTranslationLanguage(parsed.targetLanguage);
     const segments = await translateBatchWithCache(
       root,
       language?.name ?? parsed.targetLanguage,
-      parsed.segments,
+      sourceSegments,
       request.signal,
       parsed.sourceLanguage,
     );
+
+    // Requests without explicit segments are the complete workspace action:
+    // translate the stored original track and persist the translated track.
+    if (!parsed.segments) {
+      await saveTranslatedSubtitles(projectId, parsed.targetLanguage, segments);
+    }
 
     return NextResponse.json({ success: true, segments });
   } catch (error) {
@@ -105,6 +116,9 @@ export async function PUT(request: Request, context: RouteContext) {
       );
     }
 
+    if (!parsed.segments) {
+      return NextResponse.json({ success: false, error: "Bản dịch không hợp lệ." }, { status: 400 });
+    }
     const validationError = validateSegments(parsed.segments);
 
     if (validationError) {
