@@ -139,29 +139,45 @@ function styleFilter(style?: SubtitleStyle) {
   return values.length ? `:force_style='${values.join(",")}'` : "";
 }
 
-export function buildSubtitleFilter(
+export type SubtitleFilterConfig = {
+  cwd: string;
+  filter: string;
+};
+
+export function createSubtitleFilterConfig(
   subtitleFile: string,
   style?: SubtitleStyle,
-) {
-  const filename = subtitleFilename(subtitleFile).replace(/'/g, "\\'");
-  return `subtitles=filename='${filename}'${styleFilter(style)}`;
+): SubtitleFilterConfig {
+  const absoluteSubtitleFile = path.resolve(subtitleFile);
+  const rawFilename = subtitleFilename(absoluteSubtitleFile);
+  if (/[\\/]/.test(rawFilename) || /^[A-Za-z]:/.test(rawFilename)) {
+    throw new Error("Subtitle filter must contain a filename, not an absolute path.");
+  }
+  const filename = rawFilename.replace(/'/g, "\\'");
+  const filter = `subtitles=filename='${filename}'${styleFilter(style)}`;
+  return {
+    cwd: path.dirname(absoluteSubtitleFile),
+    filter,
+  };
 }
 
 async function encode(options: BurnSubtitleOptions, encoder: "h264_nvenc" | "libx264", duration: number) {
-  const subtitleFile = path.resolve(options.subtitleFile);
   const inputVideo = path.resolve(options.inputVideo);
   const outputVideo = path.resolve(options.outputVideo);
-  const filter = buildSubtitleFilter(subtitleFile, options.style);
+  const subtitleFilter = createSubtitleFilterConfig(
+    options.subtitleFile,
+    options.style,
+  );
   const codecArgs = encoder === "h264_nvenc"
     ? ["-c:v", encoder, "-preset", "p4", "-cq", "23"]
     : ["-c:v", encoder, "-preset", "veryfast", "-crf", "23"];
   let buffered = "";
   await runProcess("ffmpeg", [
-    "-y", "-i", inputVideo, "-vf", filter, ...codecArgs,
+    "-y", "-i", inputVideo, "-vf", subtitleFilter.filter, ...codecArgs,
     "-c:a", "aac", "-b:a", "192k", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
     "-progress", "pipe:2", "-nostats", outputVideo,
   ], {
-    cwd: path.dirname(subtitleFile),
+    cwd: subtitleFilter.cwd,
     signal: options.signal,
     onStderr(value) {
       buffered += value;

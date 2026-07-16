@@ -17,7 +17,7 @@ import { OllamaTranslator } from "../lib/translation/ollama-translator.ts";
 import { isDevelopmentAuthBypassEnabled } from "../lib/services/auth-flags.ts";
 import { buildSrt, type SubtitleSegment } from "../lib/subtitles.ts";
 import { buildTempoFilters } from "../lib/dubbing.ts";
-import { buildSubtitleFilter } from "../lib/ffmpeg.ts";
+import { createSubtitleFilterConfig } from "../lib/ffmpeg.ts";
 import {
   addSegment,
   deleteSegment,
@@ -240,15 +240,17 @@ test("burn SRT generation uses current edited segment state", () => {
 });
 
 test("subtitle filter uses a Windows-safe explicit filename", () => {
-  const filter = buildSubtitleFilter(
+  const config = createSubtitleFilterConfig(
     "C:\\Users\\PC\\AppData\\Local\\Temp\\burn-job\\subtitle.srt",
     { fontFamily: "Arial", fontSize: 42 },
   );
   assert.equal(
-    filter,
+    config.filter,
     "subtitles=filename='subtitle.srt':force_style='FontName=Arial,FontSize=42'",
   );
-  assert.doesNotMatch(filter, /original_size|C:/);
+  assert.doesNotMatch(config.filter, /original_size|C:|\\/);
+  assert.equal(typeof config.cwd, "string");
+  assert.ok(config.cwd.length > 0);
 });
 
 test("dubbing tempo filters fit long speech inside subtitle timing", () => {
