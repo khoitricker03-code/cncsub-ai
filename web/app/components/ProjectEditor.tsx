@@ -501,6 +501,8 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       <ExportMenu
         originalSegments={originalSegments}
         translatedSegments={translatedSegments}
+        activeTrack={activeSourceTrack}
+        activeSegments={segments}
         onImport={(imported) => {
           commitOriginalSegments(imported);
           setIsDirty(true);

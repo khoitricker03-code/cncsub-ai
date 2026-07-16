@@ -9,6 +9,8 @@ import type { SubtitleSegment } from "@/lib/subtitles";
 type ExportMenuProps = {
   originalSegments: SubtitleSegment[];
   translatedSegments: SubtitleSegment[];
+  activeTrack?: "original" | "translation";
+  activeSegments?: SubtitleSegment[];
   onImport?: (segments: SubtitleSegment[]) => void;
 };
 
@@ -23,17 +25,20 @@ const FORMATS: Array<{ format: SubtitleExportFormat; label: string }> = [
 export default function ExportMenu({
   originalSegments,
   translatedSegments,
+  activeTrack = "original",
+  activeSegments = [],
   onImport,
 }: ExportMenuProps) {
   const exportTrack = (
-    track: "original" | "translated",
+    track: string,
     segments: SubtitleSegment[],
     format: SubtitleExportFormat,
   ) => {
     const extension = format;
     const mime = format === "json" ? "application/json" : "text/plain";
+    const filenamePrefix = track === "current" ? activeTrack : track;
     downloadSubtitleExport(
-      `${track}.${extension}`,
+      `${filenamePrefix}.${extension}`,
       createSubtitleExport(segments, format),
       mime,
     );
@@ -51,6 +56,16 @@ export default function ExportMenu({
             className="rounded-lg bg-gray-700 px-3 py-2 text-sm font-semibold hover:bg-gray-600"
           >
             Original {label}
+          </button>
+        ))}
+        {FORMATS.map(({ format, label }) => (
+          <button
+            key={`current-${format}`}
+            type="button"
+            onClick={() => exportTrack("current", activeSegments, format)}
+            className="rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold hover:bg-indigo-600"
+          >
+            Current {label}
           </button>
         ))}
         {FORMATS.filter(({ format }) => format !== "json").map(
