@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { isValidTextTransform } from "../lib/ai-validation.ts";
 import { createContentCacheKey } from "../lib/cache-key.ts";
-import { createSubtitleExport } from "../lib/export.ts";
+import { createSubtitleExport, parseSubtitleImport } from "../lib/export.ts";
 import {
   OllamaClient,
   getRewriteModel,
@@ -194,4 +194,13 @@ test("exports contain valid SRT, TXT, and JSON data", () => {
   assert.match(srt, /00:00:00,000 --> 00:00:01,500/);
   assert.equal(txt, "Hello\nworld\nNext line");
   assert.deepEqual(json, segments);
+});
+
+test("VTT and ASS exports round-trip multiline subtitle timing", () => {
+  for (const format of ["vtt", "ass"] as const) {
+    const imported = parseSubtitleImport(createSubtitleExport(segments, format), format);
+    assert.equal(imported.length, segments.length);
+    assert.equal(imported[0].text, segments[0].text);
+    assert.equal(imported[1].end, segments[1].end);
+  }
 });

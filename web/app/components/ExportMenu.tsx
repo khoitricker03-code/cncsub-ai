@@ -2,16 +2,20 @@ import {
   createSubtitleExport,
   downloadSubtitleExport,
   type SubtitleExportFormat,
+  parseSubtitleImport,
 } from "@/lib/export";
 import type { SubtitleSegment } from "@/lib/subtitles";
 
 type ExportMenuProps = {
   originalSegments: SubtitleSegment[];
   translatedSegments: SubtitleSegment[];
+  onImport?: (segments: SubtitleSegment[]) => void;
 };
 
 const FORMATS: Array<{ format: SubtitleExportFormat; label: string }> = [
   { format: "srt", label: "SRT" },
+  { format: "vtt", label: "VTT" },
+  { format: "ass", label: "ASS" },
   { format: "txt", label: "TXT" },
   { format: "json", label: "JSON" },
 ];
@@ -19,6 +23,7 @@ const FORMATS: Array<{ format: SubtitleExportFormat; label: string }> = [
 export default function ExportMenu({
   originalSegments,
   translatedSegments,
+  onImport,
 }: ExportMenuProps) {
   const exportTrack = (
     track: "original" | "translated",
@@ -64,6 +69,23 @@ export default function ExportMenu({
           ),
         )}
       </div>
+      {onImport ? (
+        <label className="mt-3 inline-flex cursor-pointer rounded-lg bg-gray-700 px-3 py-2 text-sm font-semibold hover:bg-gray-600">
+          Import SRT / VTT / ASS / TXT / JSON
+          <input
+            type="file"
+            accept=".srt,.vtt,.ass,.txt,.json"
+            className="sr-only"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              const format = file.name.split(".").pop()?.toLowerCase() as SubtitleExportFormat;
+              void file.text().then((content) => onImport(parseSubtitleImport(content, format))).catch((error: unknown) => alert(error instanceof Error ? error.message : "Import failed."));
+              event.target.value = "";
+            }}
+          />
+        </label>
+      ) : null}
     </section>
   );
 }

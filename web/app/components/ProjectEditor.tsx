@@ -496,6 +496,11 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       <ExportMenu
         originalSegments={originalSegments}
         translatedSegments={translatedSegments}
+        onImport={(imported) => {
+          commitOriginalSegments(imported);
+          setIsDirty(true);
+          setSelectedSegmentId(imported[0]?.id ?? null);
+        }}
       />
 
       <details className="rounded-xl border border-gray-800 bg-gray-900 p-4">

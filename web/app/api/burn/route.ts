@@ -54,6 +54,8 @@ export async function POST(request: Request) {
 
     const video = formData.get("video");
     const subtitle = formData.get("subtitle");
+    const hardwareAcceleration = formData.get("hardwareAcceleration");
+    const styleValue = formData.get("style");
 
     if (!(video instanceof File)) {
       return NextResponse.json(
@@ -107,6 +109,15 @@ export async function POST(request: Request) {
       inputVideo: paths.inputVideo,
       subtitleFile: paths.subtitleFile,
       outputVideo: paths.outputVideo,
+      hardwareAcceleration:
+        hardwareAcceleration === "nvenc" || hardwareAcceleration === "software"
+          ? hardwareAcceleration
+          : "auto",
+      style:
+        typeof styleValue === "string" && styleValue
+          ? (JSON.parse(styleValue) as Record<string, string | number>)
+          : undefined,
+      signal: request.signal,
     });
 
     const output = await fs.readFile(
