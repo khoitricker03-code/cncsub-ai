@@ -1,36 +1,55 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CNCSub AI — local offline workspace
 
-## Getting Started
+CNCSub AI is a Next.js subtitle workspace that transcribes with Faster-Whisper, translates and rewrites with a local Ollama model, and burns subtitles with FFmpeg. The default development workflow is single-user, login-free, and does not need PostgreSQL, Redis, Gemini, OpenAI, or another paid API.
 
-First, run the development server:
+## Windows setup
 
-```bash
+Install Node.js 20+, Python 3.10+, Git, [FFmpeg](https://www.gyan.dev/ffmpeg/builds/), and [Ollama](https://ollama.com/download/windows). Ensure `node`, `npm`, `python`, `ffmpeg`, `ffprobe`, and `ollama` are available in a new PowerShell window.
+
+```powershell
+ollama pull qwen2.5:7b
+ollama list
+Copy-Item .env.example .env.local
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. Ollama must remain running. Use http://localhost:3000/api/health to diagnose Ollama, model, FFmpeg, and FFprobe availability. If the model is missing, run `ollama pull qwen2.5:7b`. If Ollama is offline, start it from the Windows application or run `ollama serve`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Faster-Whisper is invoked by `scripts/transcribe.py`. Install its Python dependencies in the interpreter used by the app if they are not already available. Transcription and generated media stay below `storage/`, which is intentionally ignored by Git.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Configuration
 
-## Learn More
+Copy `.env.example` to `.env.local`. The supported local defaults are:
 
-To learn more about Next.js, take a look at the following resources:
+- `LOCAL_BASE_URL=http://127.0.0.1:11434/v1`
+- `LOCAL_TRANSLATION_MODEL=qwen2.5:7b`
+- `LOCAL_MODEL=qwen2.5:7b`
+- `TRANSLATION_PROVIDER=local` and `REWRITE_PROVIDER=local`
+- `JOB_QUEUE=local` for restart-safe JSON job persistence
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Development bypasses login. Production authentication and Prisma remain available and unchanged; configure the Auth.js credentials and `DATABASE_URL` before a multi-user deployment.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Verification and production build
 
-## Deploy on Vercel
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+npm start
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+FFmpeg automatically attempts `h264_nvenc` on supported NVIDIA systems (including an RTX 2060 with a compatible driver/FFmpeg build) and falls back to `libx264` in automatic mode. Select CPU mode explicitly if the installed FFmpeg lacks NVENC.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Optional infrastructure
+
+PostgreSQL and Redis are optional and disabled by default. Start them only when testing the production foundation:
+
+```bash
+docker compose --profile infrastructure up -d
+```
+
+The included Dockerfile packages the Next.js production app and FFmpeg. A host Ollama service is still required; inside a container set `LOCAL_BASE_URL` to a host-reachable address such as `http://host.docker.internal:11434/v1`. Mount `/app/storage` to retain local projects.
+
+Never commit `.env.local`, credentials, `storage/`, videos, generated media, `.next/`, or `node_modules/`.
