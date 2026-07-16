@@ -10,6 +10,7 @@ import ExportMenu from "./ExportMenu";
 import TranslationToolbar, { type SubtitleTrack } from "./TranslationToolbar";
 import VideoPlayer from "./VideoPlayer";
 import BurnButton from "./BurnButton";
+import DubbingPanel from "./DubbingPanel";
 import { useSubtitleAutosave } from "@/app/hooks/useSubtitleAutosave";
 import { useUndoRedo } from "@/app/hooks/useUndoRedo";
 import { useRewrite } from "@/app/hooks/useRewrite";
@@ -513,6 +514,12 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
           segments={segments}
         />
       </section>
+
+      <DubbingPanel
+        projectId={projectId}
+        translatedSegments={translatedSegments}
+        language={translationLanguage}
+      />
 
       <details className="rounded-xl border border-gray-800 bg-gray-900 p-4">
         <summary className="cursor-pointer font-semibold">

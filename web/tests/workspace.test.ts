@@ -16,6 +16,7 @@ import {
 import { OllamaTranslator } from "../lib/translation/ollama-translator.ts";
 import { isDevelopmentAuthBypassEnabled } from "../lib/services/auth-flags.ts";
 import { buildSrt, type SubtitleSegment } from "../lib/subtitles.ts";
+import { buildTempoFilters } from "../lib/dubbing.ts";
 import {
   addSegment,
   deleteSegment,
@@ -235,6 +236,12 @@ test("burn SRT generation uses current edited segment state", () => {
   assert.match(srt, /00:00:00,250 --> 00:00:02,750/);
   assert.match(srt, /EDITED BEFORE BURN/);
   assert.doesNotMatch(srt, /Original transcript|Delete this/);
+});
+
+test("dubbing tempo filters fit long speech inside subtitle timing", () => {
+  assert.deepEqual(buildTempoFilters(1), []);
+  assert.deepEqual(buildTempoFilters(1.5), ["atempo=1.500000"]);
+  assert.deepEqual(buildTempoFilters(5), ["atempo=2", "atempo=2", "atempo=1.250000"]);
 });
 
 test("cache keys are deterministic and namespace-aware", () => {
