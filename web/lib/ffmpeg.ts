@@ -42,10 +42,17 @@ async function ensureFile(file: string) {
 function runProcess(
   command: string,
   args: string[],
-  options: { signal?: AbortSignal; onStderr?: (value: string) => void } = {},
+  options: {
+    signal?: AbortSignal;
+    onStderr?: (value: string) => void;
+    cwd?: string;
+  } = {},
 ): Promise<ProcessResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { windowsHide: true });
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      windowsHide: true,
+    });
     let stdout = "";
     let stderr = "";
     const abort = () => child.kill("SIGTERM");
@@ -113,8 +120,8 @@ export async function hasNvenc() {
   }
 }
 
-function escapeSubtitlePath(file: string) {
-  return path.resolve(file).replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
+function subtitleFilename(file: string) {
+  return file.replace(/\\/g, "/").split("/").at(-1) || "subtitle.srt";
 }
 
 function styleFilter(style?: SubtitleStyle) {
@@ -132,17 +139,29 @@ function styleFilter(style?: SubtitleStyle) {
   return values.length ? `:force_style='${values.join(",")}'` : "";
 }
 
+export function buildSubtitleFilter(
+  subtitleFile: string,
+  style?: SubtitleStyle,
+) {
+  const filename = subtitleFilename(subtitleFile).replace(/'/g, "\\'");
+  return `subtitles=filename='${filename}'${styleFilter(style)}`;
+}
+
 async function encode(options: BurnSubtitleOptions, encoder: "h264_nvenc" | "libx264", duration: number) {
-  const filter = `subtitles='${escapeSubtitlePath(options.subtitleFile)}'${styleFilter(options.style)}`;
+  const subtitleFile = path.resolve(options.subtitleFile);
+  const inputVideo = path.resolve(options.inputVideo);
+  const outputVideo = path.resolve(options.outputVideo);
+  const filter = buildSubtitleFilter(subtitleFile, options.style);
   const codecArgs = encoder === "h264_nvenc"
     ? ["-c:v", encoder, "-preset", "p4", "-cq", "23"]
     : ["-c:v", encoder, "-preset", "veryfast", "-crf", "23"];
   let buffered = "";
   await runProcess("ffmpeg", [
-    "-y", "-i", options.inputVideo, "-vf", filter, ...codecArgs,
+    "-y", "-i", inputVideo, "-vf", filter, ...codecArgs,
     "-c:a", "aac", "-b:a", "192k", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-    "-progress", "pipe:2", "-nostats", options.outputVideo,
+    "-progress", "pipe:2", "-nostats", outputVideo,
   ], {
+    cwd: path.dirname(subtitleFile),
     signal: options.signal,
     onStderr(value) {
       buffered += value;
