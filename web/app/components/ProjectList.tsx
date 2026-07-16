@@ -50,6 +50,11 @@ export default function ProjectList() {
     notify(response.ok ? "Đã xóa project." : "Không thể xóa.", response.ok ? "success" : "error");
     if (response.ok) void load();
   };
+  const duplicate = async (project: Project) => {
+    const response = await fetch(`/api/user/projects/${project.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "duplicate" }) });
+    notify(response.ok ? "Đã nhân bản project." : "Không thể nhân bản.", response.ok ? "success" : "error");
+    if (response.ok) await load();
+  };
 
   return (
     <div className="space-y-3">
@@ -68,6 +73,7 @@ export default function ProjectList() {
           <div className="mt-3 flex flex-wrap gap-2">
             <Link href={`/projects/${project.id}`} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold">Open</Link>
             <button onClick={() => void rename(project)} className="rounded-lg bg-gray-700 px-3 py-2 text-xs">Rename</button>
+            <button onClick={() => void duplicate(project)} className="rounded-lg bg-indigo-800 px-3 py-2 text-xs">Duplicate</button>
             <button onClick={() => void remove(project)} className="rounded-lg bg-red-900 px-3 py-2 text-xs text-red-200">Delete</button>
           </div>
         </article>

@@ -207,6 +207,15 @@ export async function saveEditedSubtitles(
     { path: path.join(transcriptDir, "transcript.txt"), content: transcript },
   ];
 
+  const historyDir = path.join(projectRoot(projectId), "history");
+  await fs.mkdir(historyDir, { recursive: true });
+  try {
+    const previous = await fs.readFile(path.join(transcriptDir, "segments.json"), "utf8");
+    await fs.writeFile(path.join(historyDir, `segments-${new Date().toISOString().replace(/[:.]/g, "-")}.json`), previous, "utf8");
+  } catch { /* First save has no prior version. */ }
+  const history = (await fs.readdir(historyDir)).filter((file) => file.startsWith("segments-")).sort();
+  await Promise.all(history.slice(0, Math.max(0, history.length - 20)).map((file) => fs.rm(path.join(historyDir, file))));
+
   await Promise.all(
     files.map((file) => fs.writeFile(`${file.path}${suffix}`, file.content, "utf8")),
   );

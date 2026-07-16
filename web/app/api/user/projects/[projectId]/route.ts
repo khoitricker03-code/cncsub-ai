@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { deleteOwnedProject, renameOwnedProject } from "@/lib/services/project-service";
-import { deleteProject, updateProject } from "@/lib/projects";
+import { deleteProject, duplicateProject, restoreProject, updateProject } from "@/lib/projects";
 import { getCurrentSession, isDevelopmentAuthBypassEnabled } from "@/lib/services/auth-context";
 
 type Context = { params: Promise<{ projectId: string }> };
@@ -32,4 +32,14 @@ export async function DELETE(_request: Request, { params }: Context) {
   return deleted
     ? NextResponse.json({ success: true })
     : NextResponse.json({ error: "Not found" }, { status: 404 });
+}
+
+export async function POST(request: Request, { params }: Context) {
+  const session = await getCurrentSession();
+  if (!session?.user.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!isDevelopmentAuthBypassEnabled()) return NextResponse.json({ error: "Local project action only" }, { status: 400 });
+  const { projectId } = await params;
+  const body = (await request.json()) as { action?: "duplicate" | "restore" };
+  const project = body.action === "restore" ? await restoreProject(projectId) : await duplicateProject(projectId);
+  return project ? NextResponse.json({ success: true, project }) : NextResponse.json({ error: "Not found" }, { status: 404 });
 }

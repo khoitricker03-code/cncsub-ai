@@ -18,6 +18,7 @@ export type ProjectRecord = {
 
   createdAt: string;
   updatedAt: string;
+  trashedAt?: string | null;
 
   media: {
     sourceFilename: string | null;
@@ -41,6 +42,7 @@ const STORAGE_ROOT = path.join(
   "storage",
   "projects",
 );
+const TRASH_ROOT = path.join(process.cwd(), "storage", "trash");
 
 function sanitizeProjectName(
   name: string,
@@ -211,7 +213,11 @@ export async function deleteProject(projectId: string): Promise<boolean> {
   }
 
   try {
-    await fs.rm(projectDirectory(projectId), { recursive: true, force: false });
+    await fs.mkdir(TRASH_ROOT, { recursive: true });
+    const project = await getProject(projectId);
+    if (!project) return false;
+    await fs.writeFile(projectFile(projectId), JSON.stringify({ ...project, trashedAt: new Date().toISOString() }, null, 2), "utf8");
+    await fs.rename(projectDirectory(projectId), path.join(TRASH_ROOT, projectId));
     return true;
   } catch (error) {
     const code =
@@ -221,6 +227,41 @@ export async function deleteProject(projectId: string): Promise<boolean> {
     if (code === "ENOENT") return false;
     throw error;
   }
+}
+
+export async function restoreProject(projectId: string): Promise<ProjectRecord | null> {
+  if (!isValidProjectId(projectId)) return null;
+  const source = path.join(TRASH_ROOT, projectId);
+  try {
+    await fs.rename(source, projectDirectory(projectId));
+    return updateProject(projectId, (project) => ({ ...project, trashedAt: null }));
+  } catch { return null; }
+}
+
+export async function duplicateProject(projectId: string): Promise<ProjectRecord | null> {
+  const source = await getProject(projectId);
+  if (!source) return null;
+  const duplicate = await createProject(`${source.name} (copy)`);
+  await fs.rm(projectDirectory(duplicate.id), { recursive: true });
+  await fs.cp(projectDirectory(projectId), projectDirectory(duplicate.id), { recursive: true });
+  const now = new Date().toISOString();
+  const next = { ...source, id: duplicate.id, name: duplicate.name, createdAt: now, updatedAt: now, trashedAt: null };
+  await fs.writeFile(projectFile(duplicate.id), JSON.stringify(next, null, 2), "utf8");
+  return next;
+}
+
+export async function emptyProjectTrash(retentionDays = 30): Promise<number> {
+  try {
+    const entries = await fs.readdir(TRASH_ROOT, { withFileTypes: true });
+    const cutoff = Date.now() - retentionDays * 86_400_000;
+    let removed = 0;
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const stats = await fs.stat(path.join(TRASH_ROOT, entry.name));
+      if (stats.mtimeMs < cutoff) { await fs.rm(path.join(TRASH_ROOT, entry.name), { recursive: true }); removed += 1; }
+    }
+    return removed;
+  } catch { return 0; }
 }
 
 export async function listProjects(): Promise<
