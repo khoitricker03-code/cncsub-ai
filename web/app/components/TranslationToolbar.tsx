@@ -42,6 +42,7 @@ export default function TranslationToolbar({
     isTranslating,
     isSuccess,
     error,
+    failedSegmentIds,
   } = useTranslation(
     projectId,
     onTranslationComplete,
@@ -159,6 +160,11 @@ export default function TranslationToolbar({
       )}
 
       {error && <p className="text-sm text-red-300">{error}</p>}
+      {failedSegmentIds.length > 0 && (
+        <p className="text-xs text-red-300">
+          Câu lỗi: {failedSegmentIds.join(", ")}. Thử lại sẽ tiếp tục từ cache của các batch đã hoàn thành.
+        </p>
+      )}
       {error && !isTranslating && (
         <button
           type="button"

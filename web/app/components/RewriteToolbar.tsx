@@ -8,6 +8,8 @@ type RewriteToolbarProps = {
   onModeChange: (mode: RewriteMode) => void;
   onRewriteAll: () => void;
   onCancel: () => void;
+  onRetry: () => void;
+  failedSegmentIds: number[];
 };
 
 export default function RewriteToolbar({
@@ -18,6 +20,8 @@ export default function RewriteToolbar({
   onModeChange,
   onRewriteAll,
   onCancel,
+  onRetry,
+  failedSegmentIds,
 }: RewriteToolbarProps) {
   return (
     <section className="space-y-3 rounded-xl border border-gray-800 bg-gray-900 p-4">
@@ -52,6 +56,16 @@ export default function RewriteToolbar({
         </div>
       )}
       {error && <p className="text-sm text-red-300">{error}</p>}
+      {failedSegmentIds.length > 0 && (
+        <p className="text-xs text-red-300">
+          Câu lỗi: {failedSegmentIds.join(", ")}. Các batch hoàn thành đã được cache.
+        </p>
+      )}
+      {error && !isRewriting && (
+        <button type="button" onClick={onRetry} className="rounded-lg bg-gray-700 px-3 py-2 text-sm hover:bg-gray-600">
+          Thử lại / tiếp tục
+        </button>
+      )}
     </section>
   );
 }

@@ -189,6 +189,8 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     progress: rewriteProgress,
     isRewriting,
     error: rewriteError,
+    retry: retryRewrite,
+    failedSegmentIds: rewriteFailedSegmentIds,
   } = useRewrite(projectId, handleRewriteComplete);
 
   const editedSrt = useMemo(() => buildSrt(segments), [segments]);
@@ -487,6 +489,8 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         onModeChange={setRewriteMode}
         onRewriteAll={() => void rewrite(segments, rewriteMode)}
         onCancel={cancelRewrite}
+        onRetry={retryRewrite}
+        failedSegmentIds={rewriteFailedSegmentIds}
       />
 
       <ExportMenu

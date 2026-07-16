@@ -24,6 +24,7 @@ export function useTranslation(
   const [isTranslating, setIsTranslating] = useState(false);
   const [error, setError] = useState("");
   const [isSuccess, setIsSuccess] = useState(false);
+  const [failedSegmentIds, setFailedSegmentIds] = useState<number[]>([]);
   const lastRequest = useRef<{
     segments: SubtitleSegment[];
     sourceLanguage: string;
@@ -50,6 +51,7 @@ export function useTranslation(
       setProgress(0);
       setError("");
       setIsSuccess(false);
+      setFailedSegmentIds([]);
       lastRequest.current = { segments: sourceSegments, sourceLanguage, targetLanguage };
 
       try {
@@ -66,6 +68,7 @@ export function useTranslation(
           const result = (await response.json()) as TranslationResponse;
 
           if (!response.ok || !result.success || !result.segments) {
+            setFailedSegmentIds(batch.map((segment) => segment.id));
             throw new Error(result.error || "Không thể dịch phụ đề.");
           }
 
@@ -130,5 +133,6 @@ export function useTranslation(
     isTranslating,
     isSuccess,
     error,
+    failedSegmentIds,
   };
 }

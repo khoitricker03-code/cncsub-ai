@@ -20,6 +20,8 @@ export function useRewrite(
   const [progress, setProgress] = useState(0);
   const [isRewriting, setIsRewriting] = useState(false);
   const [error, setError] = useState("");
+  const [failedSegmentIds, setFailedSegmentIds] = useState<number[]>([]);
+  const lastRequest = useRef<{ segments: SubtitleSegment[]; mode: RewriteMode } | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
 
   const cancel = useCallback(() => {
@@ -36,20 +38,24 @@ export function useRewrite(
       setIsRewriting(true);
       setProgress(0);
       setError("");
+      setFailedSegmentIds([]);
+      lastRequest.current = { segments, mode };
 
       try {
         const output: SubtitleSegment[] = [];
 
         for (let index = 0; index < segments.length; index += BATCH_SIZE) {
+          const batch = segments.slice(index, index + BATCH_SIZE);
           const response = await fetch(`/api/projects/${projectId}/rewrite`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode, segments: segments.slice(index, index + BATCH_SIZE) }),
+            body: JSON.stringify({ mode, segments: batch }),
             signal: controller.signal,
           });
           const result = (await response.json()) as RewriteResponse;
 
           if (!response.ok || !result.success || !result.segments) {
+            setFailedSegmentIds(batch.map((segment) => segment.id));
             throw new Error(result.error || "Không thể rewrite phụ đề.");
           }
 
@@ -80,5 +86,10 @@ export function useRewrite(
     [cancel, onComplete, projectId],
   );
 
-  return { rewrite, cancel, progress, isRewriting, error };
+  const retry = useCallback(() => {
+    const request = lastRequest.current;
+    if (request) void rewrite(request.segments, request.mode);
+  }, [rewrite]);
+
+  return { rewrite, cancel, retry, progress, isRewriting, error, failedSegmentIds };
 }
