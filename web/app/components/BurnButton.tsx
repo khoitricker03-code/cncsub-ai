@@ -14,6 +14,7 @@ export default function BurnButton({
   srtContent,
 }: BurnButtonProps) {
   const [loading, setLoading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
   const [fontSize, setFontSize] = useState(42);
   const [position, setPosition] = useState(2);
   const [hardware, setHardware] = useState<"auto" | "nvenc" | "software">("auto");
@@ -31,6 +32,7 @@ export default function BurnButton({
     }
 
     setLoading(true);
+    setDownloadProgress(0);
     controllerRef.current = new AbortController();
 
     try {
@@ -63,9 +65,22 @@ export default function BurnButton({
       });
 
       if (!response.ok) {
-        throw new Error("Burn subtitle thất bại.");
+        const result = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(result?.error || "Burn subtitle thất bại.");
       }
-            const blob = await response.blob();
+      if (!response.body) throw new Error("Máy chủ không trả về video.");
+      const total = Number(response.headers.get("content-length") ?? 0);
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let received = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.byteLength;
+        if (total > 0) setDownloadProgress(Math.min(100, Math.round((received / total) * 100)));
+      }
+      const blob = new Blob(chunks as BlobPart[], { type: "video/mp4" });
 
       const url = URL.createObjectURL(blob);
 
@@ -111,6 +126,7 @@ export default function BurnButton({
         {loading ? "Đang tạo video..." : "🎬 Tạo video có phụ đề"}
       </button>
       {loading ? <button type="button" onClick={() => controllerRef.current?.abort()} className="rounded-lg bg-red-700 px-3 py-3 font-semibold">Hủy</button> : null}
+      {loading ? <span className="text-sm text-gray-300">{downloadProgress > 0 ? `Đang tải ${downloadProgress}%` : "FFmpeg đang xử lý..."}</span> : null}
     </div>
   );
 }
