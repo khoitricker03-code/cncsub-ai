@@ -1,17 +1,15 @@
 import { OllamaClient, getLocalAIConfig, getTranslationModel } from "../ai/ollama-client";
 import { OllamaTranslator } from "./ollama-translator";
 import type { Translator } from "./translator";
+import { RemoteTranslator } from "./remote-translator";
 
-export function createTranslator(): Translator {
-  const provider = (process.env.TRANSLATION_PROVIDER || "local")
+export function createTranslator(selectedProvider?: string): Translator {
+  const provider = (selectedProvider || process.env.TRANSLATION_PROVIDER || "local")
     .trim()
     .toLowerCase();
 
-  if (provider !== "local" && provider !== "ollama") {
-    throw new Error(
-      `CNCSub AI đang chạy offline. TRANSLATION_PROVIDER phải là 'local', không phải '${provider}'.`,
-    );
-  }
+  if (provider === "openai" || provider === "gemini") return new RemoteTranslator(provider);
+  if (provider !== "local" && provider !== "ollama") throw new Error(`Translation provider '${provider}' không hợp lệ.`);
 
   const config = getLocalAIConfig();
   const client = new OllamaClient({ ...config, model: getTranslationModel() });

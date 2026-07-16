@@ -134,8 +134,7 @@ function downloadTextFile(
 }
 
 export type VideoUploaderHandle = {
-  transcribeSelected: () => void;
-  translateSelected: (sourceLanguage: string, targetLanguage: string) => Promise<void>;
+  generateSubtitles: (options: { sourceLanguage: string; targetLanguage: string; provider: string; rewriteMode?: string }) => Promise<void>;
 };
 
 type VideoUploaderProps = {
@@ -280,10 +279,7 @@ const VideoUploader = forwardRef<VideoUploaderHandle, VideoUploaderProps>(functi
   );
 
   useImperativeHandle(ref, () => ({
-    transcribeSelected() {
-      if (selectedFile && !loading) void transcribeVideo(selectedFile).catch(() => undefined);
-    },
-    async translateSelected(sourceLanguage, targetLanguage) {
+    async generateSubtitles({ sourceLanguage, targetLanguage, provider, rewriteMode }) {
       if (!selectedFile || loading) return;
       try {
         const transcription = projectId
@@ -293,20 +289,31 @@ const VideoUploader = forwardRef<VideoUploaderHandle, VideoUploaderProps>(functi
         if (!activeProjectId) throw new Error("Không thể xác định project để dịch.");
         setLoading(true);
         onBusyChange?.(true);
-        setStatus("Đang dịch phụ đề...");
+        setStatus("Bước 2/3 — Đang dịch phụ đề...");
         const response = await fetch(`/api/projects/${activeProjectId}/translate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sourceLanguage, targetLanguage }),
+          body: JSON.stringify({ sourceLanguage, targetLanguage, provider }),
         });
         const result = (await response.json()) as TranscribeResult;
         if (!response.ok || !result.success || !result.segments?.length) {
           throw new Error(result.error || "Không thể dịch phụ đề.");
         }
-        setSegments(result.segments);
-        setTranslatedSegments(result.segments);
+        let finalSegments = result.segments;
+        if (rewriteMode) {
+          setStatus("Bước 3/3 — Đang AI Rewrite...");
+          const rewriteResponse = await fetch(`/api/projects/${activeProjectId}/rewrite`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: rewriteMode, segments: finalSegments }) });
+          const rewriteResult = (await rewriteResponse.json()) as TranscribeResult;
+          if (!rewriteResponse.ok || !rewriteResult.success || !rewriteResult.segments?.length) throw new Error(rewriteResult.error || "Không thể rewrite phụ đề.");
+          finalSegments = rewriteResult.segments;
+          const saveResponse = await fetch(`/api/projects/${activeProjectId}/translate`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sourceLanguage, targetLanguage, segments: finalSegments }) });
+          if (!saveResponse.ok) throw new Error("Không thể lưu phụ đề rewrite.");
+        }
+        setSegments(finalSegments);
+        setTranslatedSegments(finalSegments);
         setShowingTranslation(true);
-        setStatus(`Dịch thành công — ${result.segments.length} câu.`);
+        setStatus(`Hoàn thành — ${finalSegments.length} câu. Đang mở editor...`);
+        window.location.assign(`/projects/${activeProjectId}`);
       } catch (error) {
         setStatus(`Lỗi: ${error instanceof Error ? error.message : "Không thể dịch phụ đề."}`);
       } finally {

@@ -24,7 +24,7 @@ function parseBody(body: unknown) {
     return null;
   }
 
-  const { sourceLanguage, targetLanguage, segments } = body as Record<
+  const { sourceLanguage, targetLanguage, segments, provider } = body as Record<
     string,
     unknown
   >;
@@ -32,6 +32,7 @@ function parseBody(body: unknown) {
   if (
     typeof targetLanguage !== "string" ||
     !getTranslationLanguage(targetLanguage) ||
+    (provider !== undefined && !["local", "ollama", "openai", "gemini"].includes(String(provider))) ||
     (segments !== undefined &&
       (!Array.isArray(segments) || !segments.every(isSubtitleSegment)))
   ) {
@@ -42,6 +43,7 @@ function parseBody(body: unknown) {
     sourceLanguage:
       typeof sourceLanguage === "string" ? sourceLanguage : "auto",
     targetLanguage,
+    provider: typeof provider === "string" ? provider : "local",
     segments: Array.isArray(segments) ? segments : undefined,
   };
 }
@@ -80,6 +82,7 @@ export async function POST(request: Request, context: RouteContext) {
       sourceSegments,
       request.signal,
       parsed.sourceLanguage,
+      parsed.provider,
     );
 
     // Requests without explicit segments are the complete workspace action:

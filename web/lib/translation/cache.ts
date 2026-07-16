@@ -15,11 +15,13 @@ export async function translateBatchWithCache(
   segments: SubtitleSegment[],
   signal?: AbortSignal,
   sourceLanguage?: string,
+  provider?: string,
 ): Promise<SubtitleSegment[]> {
   const cacheDirectory = path.join(
     projectRoot,
     "translation",
     "cache",
+    provider || "local",
     targetLanguage,
   );
   await fs.mkdir(cacheDirectory, { recursive: true });
@@ -50,7 +52,7 @@ export async function translateBatchWithCache(
   );
 
   if (missing.length > 0) {
-    const translator = createTranslator();
+    const translator = createTranslator(provider);
     console.info(
       `[translation] provider=${translator.provider} implementation=${translator.constructor.name}`,
     );

@@ -135,6 +135,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         if (Array.isArray(result.translatedSegments)) {
           resetTranslatedSegments(result.translatedSegments);
           setTranslationLanguage(result.translationLanguage ?? "unknown");
+          setActiveTrack("translation");
         }
       } catch (loadError) {
         if (loadError instanceof DOMException && loadError.name === "AbortError") {
