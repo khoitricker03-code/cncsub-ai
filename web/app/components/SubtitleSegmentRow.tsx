@@ -12,6 +12,8 @@ type SubtitleSegmentRowProps = {
   isActive: boolean;
   onRewrite?: (segment: SubtitleSegment) => void;
   isRewriting?: boolean;
+  isSelected?: boolean;
+  onSelect?: (segmentId: number) => void;
 };
 
 function parseTime(value: string): number {
@@ -27,6 +29,8 @@ export default function SubtitleSegmentRow({
   isActive,
   onRewrite,
   isRewriting = false,
+  isSelected = false,
+  onSelect,
 }: SubtitleSegmentRowProps) {
   const isValid = isValidSegmentTiming(segment);
 
@@ -38,10 +42,15 @@ export default function SubtitleSegmentRow({
           ? "border-red-500 bg-red-950/30"
           : isActive
             ? "border-blue-400 bg-blue-950/40"
-            : "border-gray-800 bg-gray-900",
+            : isSelected
+              ? "border-cyan-600 bg-cyan-950/20"
+              : "border-gray-800 bg-gray-900",
       ].join(" ")}
       data-segment-id={segment.id}
-      onClick={() => onSeek(segment.start)}
+      onClick={() => {
+        onSelect?.(segment.id);
+        onSeek(segment.start);
+      }}
     >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <span className="text-xs font-semibold text-gray-300">

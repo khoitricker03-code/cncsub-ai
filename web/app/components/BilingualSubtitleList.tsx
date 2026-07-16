@@ -17,10 +17,14 @@ export default function BilingualSubtitleList({
   onTranslationChange,
   onSeek,
 }: BilingualSubtitleListProps) {
+  const translatedById = new Map(
+    translatedSegments.map((segment) => [segment.id, segment]),
+  );
+
   return (
     <section className="max-h-[720px] space-y-3 overflow-y-auto pr-1">
       {originalSegments.map((original, index) => {
-        const translated = translatedSegments[index];
+        const translated = translatedById.get(original.id);
 
         return (
           <article

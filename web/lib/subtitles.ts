@@ -37,9 +37,21 @@ export function validateSegments(segments: SubtitleSegment[]): string | null {
     (segment) => !isValidSegmentTiming(segment),
   );
 
-  return invalidIndex === -1
-    ? null
-    : `Thời gian kết thúc phải lớn hơn thời gian bắt đầu ở câu ${invalidIndex + 1}.`;
+  if (invalidIndex !== -1) {
+    return `Thời gian kết thúc phải lớn hơn thời gian bắt đầu ở câu ${invalidIndex + 1}.`;
+  }
+
+  const ids = new Set<number>();
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    if (ids.has(segment.id)) return `ID phụ đề bị trùng ở câu ${index + 1}.`;
+    ids.add(segment.id);
+    if (index > 0 && segment.start < segments[index - 1].end) {
+      return `Câu ${index + 1} đang chồng lấn với câu trước.`;
+    }
+  }
+
+  return null;
 }
 
 export function formatSrtTime(seconds: number): string {

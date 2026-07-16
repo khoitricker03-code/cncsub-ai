@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 import TimelineItem from "./TimelineItem";
 import { useTimeline } from "@/app/hooks/useTimeline";
@@ -24,6 +24,7 @@ export default function Timeline({
 }: TimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
+  const [pixelsPerSecond, setPixelsPerSecond] = useState(80);
   const {
     activeSegmentId,
     timelineDuration,
@@ -38,13 +39,28 @@ export default function Timeline({
     onSeek,
     onCommit: onSegmentChange,
   });
-  const timelineWidth = Math.max(720, timelineDuration * 80);
+  const timelineWidth = Math.max(720, timelineDuration * pixelsPerSecond);
 
   return (
-    <div
-      ref={scrollRef}
-      className="overflow-x-auto rounded-xl border border-gray-800 bg-gray-950 p-3"
-    >
+    <div className="rounded-xl border border-gray-800 bg-gray-950 p-3">
+      <div className="mb-3 flex items-center justify-between gap-3 text-xs text-gray-400">
+        <span>Snap 50 ms</span>
+        <label>
+          Zoom
+          <input
+            type="range"
+            min="40"
+            max="240"
+            step="20"
+            value={pixelsPerSecond}
+            onChange={(event) => setPixelsPerSecond(Number(event.target.value))}
+            className="ml-2 align-middle"
+            aria-label="Timeline zoom"
+          />
+          <span className="ml-2 font-mono">{pixelsPerSecond}px/s</span>
+        </label>
+      </div>
+      <div ref={scrollRef} className="overflow-x-auto">
       <div
         ref={timelineRef}
         className="relative h-20 cursor-pointer overflow-hidden rounded-lg bg-gray-900"
@@ -83,6 +99,7 @@ export default function Timeline({
           className="pointer-events-none absolute inset-y-0 z-40 w-0.5 bg-red-400"
           style={{ left: `${progressPercent}%` }}
         />
+      </div>
       </div>
     </div>
   );

@@ -11,6 +11,13 @@ import {
 } from "../lib/ai/ollama-client.ts";
 import { isDevelopmentAuthBypassEnabled } from "../lib/services/auth-flags.ts";
 import type { SubtitleSegment } from "../lib/subtitles.ts";
+import {
+  addSegment,
+  deleteSegment,
+  duplicateSegment,
+  mergeWithNext,
+  splitSegment,
+} from "../lib/segment-editor.ts";
 
 const segments: SubtitleSegment[] = [
   { id: 1, start: 0, end: 1.5, text: "Hello\nworld" },
@@ -138,6 +145,34 @@ test("translation and rewrite validation preserve ids, order, and multiline shap
     ]),
     false,
   );
+});
+
+test("segment structural edits preserve stable unique ids and timing", () => {
+  const source: SubtitleSegment[] = [
+    { id: 4, start: 0, end: 2, text: "Hello world" },
+    { id: 9, start: 4, end: 6, text: "Next" },
+  ];
+  const split = splitSegment(source, 4, 1);
+  assert.deepEqual(split.segments.map((item) => item.id), [4, 10, 9]);
+  assert.equal(split.segments[0].end, 1);
+  assert.equal(split.segments[1].start, 1);
+
+  const merged = mergeWithNext(split.segments, 4);
+  assert.deepEqual(merged.segments.map((item) => item.id), [4, 9]);
+  assert.equal(merged.segments[0].end, 2);
+
+  const duplicated = duplicateSegment(source, 4);
+  assert.deepEqual(duplicated.segments.map((item) => item.id), [4, 10, 9]);
+  assert.equal(duplicated.segments[1].start, 2);
+  assert.equal(duplicated.segments[1].end, 4);
+
+  const added = addSegment(source, 3);
+  assert.deepEqual(added.segments.map((item) => item.id), [4, 10, 9]);
+  assert.equal(added.segments[1].start, 3);
+  assert.equal(added.segments[1].end, 4);
+
+  const deleted = deleteSegment(source, 4);
+  assert.deepEqual(deleted.segments.map((item) => item.id), [9]);
 });
 
 test("cache keys are deterministic and namespace-aware", () => {

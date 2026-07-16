@@ -20,6 +20,14 @@ import {
 } from "@/lib/subtitles";
 import type { TranslationLanguageCode } from "@/lib/translation/languages";
 import type { RewriteMode } from "@/lib/rewrite";
+import {
+  addSegment,
+  deleteSegment,
+  duplicateSegment,
+  mergeWithNext,
+  splitSegment,
+  type SegmentEditResult,
+} from "@/lib/segment-editor";
 
 type OpenProjectResponse = {
   success: boolean;
@@ -73,6 +81,8 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
   const [isDirty, setIsDirty] = useState(false);
   const [isTranslationDirty, setIsTranslationDirty] = useState(false);
   const [error, setError] = useState("");
+  const [editNotice, setEditNotice] = useState("");
+  const [selectedSegmentId, setSelectedSegmentId] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [seekVideo, setSeekVideo] = useState<(time: number) => void>(() => () => undefined);
   const markSaved = useCallback(() => setIsDirty(false), []);
@@ -119,6 +129,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
 
         setData(result);
         resetOriginalSegments(result.segments);
+        setSelectedSegmentId(result.segments[0]?.id ?? null);
 
         if (Array.isArray(result.translatedSegments)) {
           resetTranslatedSegments(result.translatedSegments);
@@ -209,6 +220,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         segment.id === updated.id ? updated : segment,
       ),
     );
+    setSelectedSegmentId(updated.id);
 
     if (activeTrack === "translation") {
       setIsTranslationDirty(true);
@@ -244,7 +256,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     [resetTranslatedSegments],
   );
 
-  const handleUndo = () => {
+  const handleUndo = useCallback(() => {
     if (activeTrack === "translation" && canUndoTranslation) {
       undoTranslation();
       setIsTranslationDirty(true);
@@ -252,9 +264,9 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       undoOriginal();
       setIsDirty(true);
     }
-  };
+  }, [activeTrack, canUndoOriginal, canUndoTranslation, undoOriginal, undoTranslation]);
 
-  const handleRedo = () => {
+  const handleRedo = useCallback(() => {
     if (activeTrack === "translation" && canRedoTranslation) {
       redoTranslation();
       setIsTranslationDirty(true);
@@ -262,9 +274,9 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       redoOriginal();
       setIsDirty(true);
     }
-  };
+  }, [activeTrack, canRedoOriginal, canRedoTranslation, redoOriginal, redoTranslation]);
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     if (activeTrack === "translation") {
       if (await saveTranslation()) {
         setIsTranslationDirty(false);
@@ -272,12 +284,107 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     } else if (await save()) {
       setIsDirty(false);
     }
-  };
+  }, [activeTrack, save, saveTranslation]);
+
+  const commitStructuralEdit = useCallback(
+    (result: SegmentEditResult) => {
+      if (result.error) {
+        setEditNotice(result.error);
+        return;
+      }
+
+      const commit =
+        activeTrack === "translation"
+          ? commitTranslatedSegments
+          : commitOriginalSegments;
+      commit(result.segments);
+      setSelectedSegmentId(result.selectedId);
+      setEditNotice("");
+
+      if (activeTrack === "translation") setIsTranslationDirty(true);
+      else setIsDirty(true);
+    },
+    [activeTrack, commitOriginalSegments, commitTranslatedSegments],
+  );
+
+  const selectedId = selectedSegmentId ?? activeSegmentId;
+  const handleAddSegment = useCallback(
+    () => commitStructuralEdit(addSegment(segments, currentTime)),
+    [commitStructuralEdit, currentTime, segments],
+  );
+  const handleSplitSegment = useCallback(() => {
+    if (selectedId === null) {
+      setEditNotice("Hãy chọn một câu để tách.");
+      return;
+    }
+    commitStructuralEdit(splitSegment(segments, selectedId, currentTime));
+  }, [commitStructuralEdit, currentTime, segments, selectedId]);
+  const handleMergeSegment = useCallback(() => {
+    if (selectedId === null) {
+      setEditNotice("Hãy chọn một câu để gộp.");
+      return;
+    }
+    commitStructuralEdit(mergeWithNext(segments, selectedId));
+  }, [commitStructuralEdit, segments, selectedId]);
+  const handleDuplicateSegment = useCallback(() => {
+    if (selectedId === null) {
+      setEditNotice("Hãy chọn một câu để nhân bản.");
+      return;
+    }
+    commitStructuralEdit(duplicateSegment(segments, selectedId));
+  }, [commitStructuralEdit, segments, selectedId]);
+  const handleDeleteSegment = useCallback(() => {
+    if (selectedId === null) {
+      setEditNotice("Hãy chọn một câu để xóa.");
+      return;
+    }
+    commitStructuralEdit(deleteSegment(segments, selectedId));
+  }, [commitStructuralEdit, segments, selectedId]);
 
   const canUndo =
     activeTrack === "translation" ? canUndoTranslation : canUndoOriginal;
   const canRedo =
     activeTrack === "translation" ? canRedoTranslation : canRedoOriginal;
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const editingText =
+        target?.tagName === "INPUT" || target?.tagName === "TEXTAREA";
+      const modifier = event.ctrlKey || event.metaKey;
+
+      if (modifier && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void handleSave();
+      } else if (modifier && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        if (event.shiftKey) handleRedo();
+        else handleUndo();
+      } else if (modifier && event.key.toLowerCase() === "y") {
+        event.preventDefault();
+        handleRedo();
+      } else if (!editingText && modifier && event.key.toLowerCase() === "d") {
+        event.preventDefault();
+        handleDuplicateSegment();
+      } else if (!editingText && modifier && event.key === "Enter") {
+        event.preventDefault();
+        handleSplitSegment();
+      } else if (!editingText && (event.key === "Delete" || event.key === "Backspace")) {
+        event.preventDefault();
+        handleDeleteSegment();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    handleDeleteSegment,
+    handleDuplicateSegment,
+    handleRedo,
+    handleSave,
+    handleSplitSegment,
+    handleUndo,
+  ]);
 
   if (error) {
     return (
@@ -396,6 +503,40 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         </pre>
       </details>
 
+      <section className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="mr-2 text-sm font-semibold text-gray-300">
+            Chỉnh cấu trúc
+          </span>
+          {[
+            ["Thêm tại playhead", handleAddSegment],
+            ["Tách tại playhead", handleSplitSegment],
+            ["Gộp câu kế", handleMergeSegment],
+            ["Nhân bản", handleDuplicateSegment],
+            ["Xóa", handleDeleteSegment],
+          ].map(([label, action]) => (
+            <button
+              key={label as string}
+              type="button"
+              onClick={action as () => void}
+              disabled={activeTrack === "both"}
+              className="rounded-lg bg-gray-700 px-3 py-2 text-sm hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {label as string}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-gray-500">
+          Ctrl/Cmd+S lưu • Ctrl/Cmd+Z/Y hoàn tác/làm lại • Ctrl/Cmd+Enter tách • Ctrl/Cmd+D nhân bản • Delete xóa
+        </p>
+        {activeTrack === "both" && (
+          <p className="mt-2 text-sm text-amber-300">
+            Chọn Original hoặc Translation để chỉnh cấu trúc.
+          </p>
+        )}
+        {editNotice && <p className="mt-2 text-sm text-amber-300">{editNotice}</p>}
+      </section>
+
       <VideoPlayer
         projectId={projectId}
         segments={segments}
@@ -423,6 +564,8 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
               onChange={updateSegment}
               onSeek={seekVideo}
               isActive={segment.id === activeSegmentId}
+              isSelected={segment.id === selectedSegmentId}
+              onSelect={setSelectedSegmentId}
               onRewrite={(item) => void rewrite([item], rewriteMode)}
               isRewriting={isRewriting}
             />
