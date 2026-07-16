@@ -9,6 +9,7 @@ import RewriteToolbar from "./RewriteToolbar";
 import ExportMenu from "./ExportMenu";
 import TranslationToolbar, { type SubtitleTrack } from "./TranslationToolbar";
 import VideoPlayer from "./VideoPlayer";
+import BurnButton from "./BurnButton";
 import { useSubtitleAutosave } from "@/app/hooks/useSubtitleAutosave";
 import { useUndoRedo } from "@/app/hooks/useUndoRedo";
 import { useRewrite } from "@/app/hooks/useRewrite";
@@ -150,12 +151,16 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     return () => controller.abort();
   }, [projectId, resetOriginalSegments, resetTranslatedSegments]);
 
+  const activeSourceTrack: "original" | "translation" =
+    activeTrack === "both" ? "translation" : activeTrack;
   const segments =
-    activeTrack === "translation" ? translatedSegments : originalSegments;
+    activeSourceTrack === "translation" && translatedSegments.length > 0
+      ? translatedSegments
+      : originalSegments;
   const activeStatus =
-    activeTrack === "translation" ? translationStatus : status;
+    activeSourceTrack === "translation" ? translationStatus : status;
   const activeMessage =
-    activeTrack === "translation" ? translationSaveMessage : message;
+    activeSourceTrack === "translation" ? translationSaveMessage : message;
 
   const handleRewriteComplete = useCallback(
     (rewritten: SubtitleSegment[]) => {
@@ -502,6 +507,20 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
           setSelectedSegmentId(imported[0]?.id ?? null);
         }}
       />
+
+      <section className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+        <h2 className="mb-3 font-semibold">Burn track đang chỉnh sửa</h2>
+        <p className="mb-3 text-sm text-gray-400">
+          Video xuất ra luôn dùng đúng phụ đề hiện tại: {activeSourceTrack === "translation" ? "bản dịch" : "bản gốc"}.
+        </p>
+        <BurnButton
+          videoUrl={`/api/projects/${projectId}/video`}
+          srtFilename={
+            activeSourceTrack === "translation" ? "translated.srt" : "subtitle.srt"
+          }
+          segments={segments}
+        />
+      </section>
 
       <details className="rounded-xl border border-gray-800 bg-gray-900 p-4">
         <summary className="cursor-pointer font-semibold">
