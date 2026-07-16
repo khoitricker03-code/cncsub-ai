@@ -179,6 +179,7 @@ export async function POST(request: Request) {
         }
       })();
 
+      responseOwnsCleanup = true;
       return NextResponse.json({ success: true, jobId });
     }
 
