@@ -275,3 +275,32 @@ export async function saveTranslatedSubtitles(
 
   return { subtitle };
 }
+
+export async function getProjectRenderVideoPath(
+  projectId: string,
+): Promise<string | null> {
+  if (!isValidProjectId(projectId) || !(await getProject(projectId))) {
+    return null;
+  }
+
+  const renderPath = path.join(projectRoot(projectId), "render", "output.mp4");
+
+  try {
+    await fs.access(renderPath);
+    return renderPath;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveRenderedVideo(projectId: string, sourcePath: string) {
+  if (!isValidProjectId(projectId) || !(await getProject(projectId))) {
+    throw new Error("Project không tồn tại.");
+  }
+
+  const renderDir = path.join(projectRoot(projectId), "render");
+  await fs.mkdir(renderDir, { recursive: true });
+  const dest = path.join(renderDir, "output.mp4");
+  await fs.copyFile(sourcePath, dest);
+  return dest;
+}

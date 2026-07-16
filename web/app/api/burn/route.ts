@@ -8,6 +8,7 @@ import { NextResponse } from "next/server";
 
 import { burnSubtitle, type SubtitleStyle } from "@/lib/ffmpeg";
 import { logger } from "@/lib/logger";
+import { saveRenderedVideo } from "@/lib/storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,6 +70,7 @@ export async function POST(request: Request) {
     if (video.size > MAX_VIDEO_SIZE) return NextResponse.json({ success: false, error: "Video phải nhỏ hơn hoặc bằng 500 MB." } satisfies BurnResponse, { status: 413 });
     if (subtitle.size > MAX_SUBTITLE_SIZE) return NextResponse.json({ success: false, error: "File SRT quá lớn." } satisfies BurnResponse, { status: 413 });
 
+    const persist = formData.get("projectId") || formData.get("persist");
     const paths = createJobPaths(video.name);
     workDir = paths.workDir;
     await fs.mkdir(workDir, { recursive: true });
@@ -77,6 +79,66 @@ export async function POST(request: Request) {
       saveUploadedFile(subtitle, paths.subtitleFile),
     ]);
 
+    // If caller requests persistence into a project, run burn in background and return a job id.
+    const projectId = typeof formData.get("projectId") === "string" ? String(formData.get("projectId")) : null;
+
+    if (projectId) {
+      const jobId = `burn-job-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      // lazy import global job map
+      (global as any).__burnJobs = (global as any).__burnJobs || new Map();
+      const jobMap: Map<string, any> = (global as any).__burnJobs;
+
+      jobMap.set(jobId, { status: "running", progress: 0, error: null });
+
+      // run burn asynchronously
+      (async () => {
+        try {
+          await burnSubtitle({
+            inputVideo: paths.inputVideo,
+            subtitleFile: paths.subtitleFile,
+            outputVideo: paths.outputVideo,
+            hardwareAcceleration: hardware === "nvenc" || hardware === "software" ? hardware : "auto",
+            style: parseStyle(formData.get("style")),
+            onProgress(p) {
+              const entry = jobMap.get(jobId);
+              if (entry) entry.progress = Math.round(p);
+            },
+          });
+
+          // persist into project render folder
+          try {
+            const saved = await saveRenderedVideo(projectId, paths.outputVideo);
+            const entry = jobMap.get(jobId);
+            if (entry) {
+              entry.status = "completed";
+              entry.progress = 100;
+              entry.renderedPath = saved;
+            }
+          } catch (err) {
+            const entry = jobMap.get(jobId);
+            if (entry) {
+              entry.status = "failed";
+              entry.error = err instanceof Error ? err.message : String(err);
+            }
+          }
+        } catch (err) {
+          const entry = jobMap.get(jobId);
+          if (entry) {
+            entry.status = "failed";
+            entry.error = err instanceof Error ? err.message : String(err);
+          }
+        } finally {
+          // cleanup work dir
+          try {
+            await fs.rm(paths.workDir, { recursive: true, force: true });
+          } catch {}
+        }
+      })();
+
+      return NextResponse.json({ success: true, jobId });
+    }
+
+    // default: stream back the file (download)
     await burnSubtitle({
       inputVideo: paths.inputVideo,
       subtitleFile: paths.subtitleFile,
@@ -108,5 +170,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: message } satisfies BurnResponse, { status: 500 });
   } finally {
     if (workDir && !responseOwnsCleanup) await fs.rm(workDir, { recursive: true, force: true });
+  }
+}
+
+export async function GET(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const jobId = url.searchParams.get("jobId");
+    if (!jobId) return NextResponse.json({ success: false, error: "Missing jobId" }, { status: 400 });
+
+    const jobMap: Map<string, any> = (global as any).__burnJobs || new Map();
+    const entry = jobMap.get(jobId);
+    if (!entry) return NextResponse.json({ success: false, error: "Job not found" }, { status: 404 });
+
+    return NextResponse.json({ success: true, status: entry.status, progress: entry.progress ?? 0, error: entry.error ?? null });
+  } catch (err) {
+    return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
 }

@@ -3,7 +3,7 @@ import { stat } from "fs/promises";
 import { Readable } from "stream";
 import { NextResponse } from "next/server";
 
-import { getProjectVideoPath } from "@/lib/storage";
+import { getProjectVideoPath, getProjectRenderVideoPath } from "@/lib/storage";
 import { authorizeProject } from "@/lib/services/access-service";
 
 export const runtime = "nodejs";
@@ -19,7 +19,9 @@ export async function GET(request: Request, context: RouteContext) {
     if (!(await authorizeProject(projectId))) {
       return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
     }
-    const videoPath = await getProjectVideoPath(projectId);
+    const url = new URL(request.url);
+    const rendered = url.searchParams.get("rendered") === "true";
+    const videoPath = rendered ? await getProjectRenderVideoPath(projectId) ?? await getProjectVideoPath(projectId) : await getProjectVideoPath(projectId);
 
     if (!videoPath) {
       return NextResponse.json(

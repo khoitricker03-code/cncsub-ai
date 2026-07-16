@@ -10,6 +10,8 @@ type BurnButtonProps = {
   srtFilename: string;
   srtContent?: string;
   segments?: SubtitleSegment[];
+  projectId?: string;
+  onComplete?: (ok: boolean) => void;
 };
 
 type HardwareAcceleration = "auto" | "nvenc" | "software";
@@ -20,6 +22,8 @@ export default function BurnButton({
   srtFilename,
   srtContent,
   segments,
+  projectId,
+  onComplete,
 }: BurnButtonProps) {
   const [loading, setLoading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
@@ -79,6 +83,9 @@ export default function BurnButton({
         }),
       );
 
+      // If projectId is present, request persistence and poll job status.
+      if (projectId) formData.append("projectId", projectId);
+
       const response = await fetch("/api/burn", {
         method: "POST",
         body: formData,
@@ -91,43 +98,84 @@ export default function BurnButton({
           | null;
         throw new Error(result?.error || "Burn subtitle thất bại.");
       }
-      if (!response.body) throw new Error("Máy chủ không trả về video.");
 
-      const total = Number(response.headers.get("content-length") ?? 0);
-      const reader = response.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let received = 0;
+      // If project-based, server returns JSON with jobId
+      const maybeJson = await response.clone().json().catch(() => null) as any;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-        received += value.byteLength;
-        if (total > 0) {
-          setDownloadProgress(
-            Math.min(100, Math.round((received / total) * 100)),
-          );
+      if (projectId && maybeJson?.jobId) {
+        const jobId = String(maybeJson.jobId);
+        let finished = false;
+        while (!finished) {
+          await new Promise((r) => setTimeout(r, 1000));
+          try {
+            const statusRes = await fetch(`/api/burn?jobId=${encodeURIComponent(jobId)}`);
+            if (!statusRes.ok) continue;
+            const statusJson = await statusRes.json().catch(() => null) as any;
+            if (!statusJson?.success) continue;
+            const { status, progress, error: jobError } = statusJson;
+            setDownloadProgress(Math.max(0, Math.min(100, Number(progress ?? 0))));
+            if (status === "completed") {
+              finished = true;
+              setDownloadProgress(100);
+              setLoading(false);
+              controllerRef.current = null;
+              onComplete?.(true);
+              return;
+            }
+            if (status === "failed") {
+              finished = true;
+              setError(jobError || "Burn failed.");
+              setLoading(false);
+              controllerRef.current = null;
+              onComplete?.(false);
+              return;
+            }
+          } catch {
+            // ignore transient errors
+          }
         }
-      }
+      } else {
+        // fallback: stream binary download
+        if (!response.body) throw new Error("Máy chủ không trả về video.");
 
-      const url = URL.createObjectURL(
-        new Blob(chunks as BlobPart[], { type: "video/mp4" }),
-      );
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "video_final.mp4";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+        const total = Number(response.headers.get("content-length") ?? 0);
+        const reader = response.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let received = 0;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received += value.byteLength;
+          if (total > 0) {
+            setDownloadProgress(
+              Math.min(100, Math.round((received / total) * 100)),
+            );
+          }
+        }
+
+        const url = URL.createObjectURL(
+          new Blob(chunks as BlobPart[], { type: "video/mp4" }),
+        );
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "video_final.mp4";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      }
     } catch (burnError) {
       if (burnError instanceof DOMException && burnError.name === "AbortError") {
         setError("Đã hủy tạo video.");
+        onComplete?.(false);
         return;
       }
       setError(
         burnError instanceof Error ? burnError.message : "Không thể tạo video.",
       );
+      onComplete?.(false);
     } finally {
       setLoading(false);
       controllerRef.current = null;

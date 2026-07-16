@@ -86,6 +86,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
   const [selectedSegmentId, setSelectedSegmentId] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [seekVideo, setSeekVideo] = useState<(time: number) => void>(() => () => undefined);
+  const [showBurned, setShowBurned] = useState(false);
   const markSaved = useCallback(() => setIsDirty(false), []);
   const markTranslationSaved = useCallback(
     () => setIsTranslationDirty(false),
@@ -515,13 +516,63 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         <p className="mb-3 text-sm text-gray-400">
           Video xuất ra luôn dùng đúng phụ đề hiện tại: {activeSourceTrack === "translation" ? "bản dịch" : "bản gốc"}.
         </p>
-        <BurnButton
-          videoUrl={`/api/projects/${projectId}/video`}
-          srtFilename={
-            activeSourceTrack === "translation" ? "translated.srt" : "subtitle.srt"
-          }
-          segments={segments}
-        />
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowBurned(false)}
+              className={["rounded-lg px-3 py-2 text-sm", !showBurned ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-200"].join(" ")}
+            >
+              Original
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowBurned(true)}
+              className={["rounded-lg px-3 py-2 text-sm", showBurned ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-200"].join(" ")}
+            >
+              Burned
+            </button>
+          </div>
+
+          <BurnButton
+            projectId={projectId}
+            videoUrl={`/api/projects/${projectId}/video`}
+            srtFilename={
+              activeSourceTrack === "translation" ? "translated.srt" : "subtitle.srt"
+            }
+            segments={segments}
+            onComplete={(ok) => {
+              if (ok) {
+                // reload project data and switch to burned
+                (async () => {
+                  try {
+                    const resp = await fetch(`/api/projects/${projectId}`);
+                    const result = await resp.json();
+                    if (resp.ok && result?.success) {
+                      setShowBurned(true);
+                      // refresh workspace data to pick up any new rendered video state
+                      setData(result);
+                      if (Array.isArray(result.segments)) {
+                        resetOriginalSegments(result.segments);
+                        setSelectedSegmentId(result.segments[0]?.id ?? null);
+                      }
+                      if (Array.isArray(result.translatedSegments)) {
+                        resetTranslatedSegments(result.translatedSegments);
+                        setTranslationLanguage(result.translationLanguage ?? "unknown");
+                      }
+                    } else {
+                      setShowBurned(false);
+                    }
+                  } catch {
+                    setShowBurned(false);
+                  }
+                })();
+              } else {
+                setShowBurned(false);
+              }
+            }}
+          />
+        </div>
       </section>
 
       <details className="rounded-xl border border-gray-800 bg-gray-900 p-4">
@@ -573,6 +624,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         onTimeChange={setCurrentTime}
         onPlayerReady={handlePlayerReady}
         onSegmentChange={updateSegment}
+        useRendered={showBurned}
       />
 
       {activeTrack === "both" ? (
