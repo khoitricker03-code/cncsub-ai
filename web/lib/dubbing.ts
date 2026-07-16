@@ -3,12 +3,8 @@ import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
 
-import { burnSubtitle, probeVideo } from "./ffmpeg.ts";
-import {
-  buildSrt,
-  validateSegments,
-  type SubtitleSegment,
-} from "./subtitles.ts";
+import { probeVideo } from "./ffmpeg.ts";
+import { validateSegments, type SubtitleSegment } from "./subtitles.ts";
 
 type ProcessOptions = {
   signal?: AbortSignal;
@@ -207,10 +203,6 @@ export async function renderDubbedVideo(
     parsedOutput.dir,
     `${parsedOutput.name}.tmp-${process.pid}-${Date.now()}${parsedOutput.ext}`,
   );
-  const mixedOutput = path.join(
-    parsedOutput.dir,
-    `${parsedOutput.name}.mixed-${process.pid}-${Date.now()}${parsedOutput.ext}`,
-  );
   let provider: DubbingResult["ttsProvider"] | null = null;
 
   try {
@@ -278,18 +270,9 @@ export async function renderDubbedVideo(
       metadata.duration.toFixed(3),
       "-movflags",
       "+faststart",
-      mixedOutput,
+      temporaryOutput,
     );
     await runProcess("ffmpeg", args, { signal: options.signal });
-    const subtitleFile = path.join(workDir, "translated.srt");
-    await fs.writeFile(subtitleFile, `\uFEFF${buildSrt(options.segments)}`, "utf8");
-    await burnSubtitle({
-      inputVideo: mixedOutput,
-      subtitleFile,
-      outputVideo: temporaryOutput,
-      hardwareAcceleration: "software",
-      signal: options.signal,
-    });
     await fs.rename(temporaryOutput, options.outputVideo);
     return {
       outputVideo: options.outputVideo,
@@ -299,7 +282,6 @@ export async function renderDubbedVideo(
     };
   } finally {
     await fs.rm(temporaryOutput, { force: true });
-    await fs.rm(mixedOutput, { force: true });
     await fs.rm(workDir, { recursive: true, force: true });
   }
 }
