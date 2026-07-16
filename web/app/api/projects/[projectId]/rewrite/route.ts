@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 
 import { getProject } from "@/lib/projects";
 import { isRewriteMode } from "@/lib/rewrite";
@@ -55,7 +56,7 @@ export async function POST(request: Request, context: RouteContext) {
     );
     return NextResponse.json({ success: true, segments: rewritten });
   } catch (error) {
-    console.error("Rewrite error:", error);
+    logger.error("rewrite.failed", error);
     return NextResponse.json(
       {
         success: false,

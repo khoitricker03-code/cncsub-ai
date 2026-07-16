@@ -2,6 +2,7 @@ import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
 import { NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 import { transcribeVideo } from "@/lib/whisper";
 import { createProject, updateProject } from "@/lib/projects";
 import {
@@ -165,7 +166,7 @@ await saveTranscript(
       segments,
     });
   } catch (error) {
-    console.error("Transcribe API error:", error);
+    logger.error("transcribe.failed", error);
 
     const message =
       error instanceof Error

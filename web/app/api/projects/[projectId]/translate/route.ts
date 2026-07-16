@@ -9,6 +9,7 @@ import {
   saveTranslatedSubtitles,
 } from "@/lib/storage";
 import { authorizeProject } from "@/lib/services/access-service";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,7 +79,7 @@ export async function POST(request: Request, context: RouteContext) {
 
     return NextResponse.json({ success: true, segments });
   } catch (error) {
-    console.error("Translate batch error:", error);
+    logger.error("translation.failed", error);
     return NextResponse.json(
       {
         success: false,
@@ -121,7 +122,7 @@ export async function PUT(request: Request, context: RouteContext) {
 
     return NextResponse.json({ success: true, segments: parsed.segments });
   } catch (error) {
-    console.error("Save translation error:", error);
+    logger.error("translation.save_failed", error);
     return NextResponse.json(
       {
         success: false,

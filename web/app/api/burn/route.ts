@@ -4,6 +4,7 @@ import path from "path";
 import { NextResponse } from "next/server";
 
 import { burnSubtitle } from "@/lib/ffmpeg";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -132,7 +133,7 @@ export async function POST(request: Request) {
       },
     });
       } catch (error) {
-    console.error("Burn subtitle error:", error);
+    logger.error("burn.failed", error);
 
     const message =
       error instanceof Error
