@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { forwardRef, useCallback, useImperativeHandle, useMemo, useState } from "react";
 import BurnButton from "./BurnButton";
 import { useDropzone } from "react-dropzone";
 
@@ -132,7 +132,18 @@ function downloadTextFile(
   }, 0);
 }
 
-export default function VideoUploader() {
+export type VideoUploaderHandle = {
+  transcribeSelected: () => void;
+};
+
+type VideoUploaderProps = {
+  onSelectionChange?: (hasSelection: boolean) => void;
+};
+
+const VideoUploader = forwardRef<VideoUploaderHandle, VideoUploaderProps>(function VideoUploader(
+  { onSelectionChange },
+  ref,
+) {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
   const [selectedFile, setSelectedFile] =
@@ -235,10 +246,19 @@ export default function VideoUploader() {
       }
 
       setSelectedFile(file);
-      void transcribeVideo(file);
+      setStatus("");
+      setSegments([]);
+      setLanguage("");
+      onSelectionChange?.(true);
     },
-    [],
+    [onSelectionChange],
   );
+
+  useImperativeHandle(ref, () => ({
+    transcribeSelected() {
+      if (selectedFile && !loading) void transcribeVideo(selectedFile);
+    },
+  }), [loading, selectedFile]);
 
   const {
     getRootProps,
@@ -447,4 +467,6 @@ export default function VideoUploader() {
       )}
     </div>
   );
-}
+});
+
+export default VideoUploader;

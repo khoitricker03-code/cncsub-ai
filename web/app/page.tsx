@@ -1,5 +1,5 @@
 import ProjectList from "./components/ProjectList";
-import VideoUploader from "./components/VideoUploader";
+import UploadWorkspace from "./components/UploadWorkspace";
 import UserMenu from "./components/UserMenu";
 import {
   getCurrentSession,
@@ -51,35 +51,7 @@ export default async function Home() {
 
           <div className="rounded-2xl border border-gray-800 bg-gray-900 p-8">
 
-            <VideoUploader />
-
-            <div className="mt-8 grid grid-cols-2 gap-4">
-
-              <select className="rounded-lg bg-gray-800 p-3">
-
-                <option>Tiếng Việt</option>
-                <option>English</option>
-                <option>中文</option>
-                <option>日本語</option>
-                <option>한국어</option>
-
-              </select>
-
-              <select className="rounded-lg bg-gray-800 p-3">
-
-                <option>Tiếng Việt</option>
-                <option>English</option>
-                <option>中文</option>
-                <option>日本語</option>
-                <option>한국어</option>
-
-              </select>
-
-            </div>
-
-            <button className="mt-8 w-full rounded-xl bg-blue-600 py-4 text-xl font-bold hover:bg-blue-700">
-              🚀 Tạo phụ đề
-            </button>
+            <UploadWorkspace />
 
           </div>
 
