@@ -304,3 +304,39 @@ export async function saveRenderedVideo(projectId: string, sourcePath: string) {
   await fs.copyFile(sourcePath, dest);
   return dest;
 }
+
+export async function saveVoiceFile(projectId: string, sourcePath: string) {
+  if (!isValidProjectId(projectId) || !(await getProject(projectId))) {
+    throw new Error("Project không tồn tại.");
+  }
+
+  const renderDir = path.join(projectRoot(projectId), "render");
+  await fs.mkdir(renderDir, { recursive: true });
+  const dest = path.join(renderDir, "voice.wav");
+  await fs.copyFile(sourcePath, dest);
+  return dest;
+}
+
+export async function saveMixedFile(projectId: string, sourcePath: string) {
+  if (!isValidProjectId(projectId) || !(await getProject(projectId))) {
+    throw new Error("Project không tồn tại.");
+  }
+
+  const renderDir = path.join(projectRoot(projectId), "render");
+  await fs.mkdir(renderDir, { recursive: true });
+  const dest = path.join(renderDir, "mixed.wav");
+  await fs.copyFile(sourcePath, dest);
+  return dest;
+}
+
+export async function saveFinalVideo(projectId: string, sourcePath: string) {
+  if (!isValidProjectId(projectId) || !(await getProject(projectId))) {
+    throw new Error("Project không tồn tại.");
+  }
+
+  const renderDir = path.join(projectRoot(projectId), "render");
+  await fs.mkdir(renderDir, { recursive: true });
+  const dest = path.join(renderDir, "output.mp4");
+  await fs.copyFile(sourcePath, dest);
+  return dest;
+}

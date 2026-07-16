@@ -10,6 +10,7 @@ import ExportMenu from "./ExportMenu";
 import TranslationToolbar, { type SubtitleTrack } from "./TranslationToolbar";
 import VideoPlayer from "./VideoPlayer";
 import BurnButton from "./BurnButton";
+import AIDubbing from "./AIDubbing";
 import { useSubtitleAutosave } from "@/app/hooks/useSubtitleAutosave";
 import { useUndoRedo } from "@/app/hooks/useUndoRedo";
 import { useRewrite } from "@/app/hooks/useRewrite";
@@ -573,6 +574,22 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
             }}
           />
         </div>
+      </section>
+
+      <section className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+        <h2 className="mb-3 font-semibold">AI Dubbing</h2>
+        <AIDubbing projectId={projectId} onComplete={(ok) => {
+          if (ok) {
+            setShowBurned(true);
+            (async () => {
+              try {
+                const resp = await fetch(`/api/projects/${projectId}`);
+                const result = await resp.json();
+                if (resp.ok && result?.success) setData(result);
+              } catch {}
+            })();
+          }
+        }} />
       </section>
 
       <details className="rounded-xl border border-gray-800 bg-gray-900 p-4">
