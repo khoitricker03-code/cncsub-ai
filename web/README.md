@@ -37,6 +37,8 @@ Copy `.env.example` to `.env.local`. The supported local defaults are:
 - `JOB_QUEUE=local` for restart-safe JSON job persistence
 - `PYTHON_BIN=` optionally selects the Python executable used by AI Dubbing
 - `DEMUCS_MODEL=htdemucs` selects the source-separation model
+- `DEMUCS_CACHE_DIR=` optionally selects a short, writable persistent model-cache directory
+- `DEMUCS_TIMEOUT_MS=1800000` optionally changes the model-download/separation timeout
 
 Development bypasses login. Production authentication and Prisma remain available and unchanged; configure the Auth.js credentials and `DATABASE_URL` before a multi-user deployment.
 
@@ -44,7 +46,7 @@ Development bypasses login. Production authentication and Prisma remain availabl
 
 Translate and save the subtitle track before starting AI Dubbing. The panel selects a default neural voice for Vietnamese, English, Simplified Chinese, Japanese, or Korean, while allowing another listed voice, speech rate, pitch, AI voice volume, and background volume. The default Replace Voice Only mode keeps the Demucs accompaniment stem at 100%, removes the vocals stem, and mixes timed Edge TTS speech at 100%.
 
-Each generated clip is validated with FFprobe and FFmpeg, fitted to its subtitle window when necessary, positioned at the subtitle start time, and mixed into a full-length `voice.wav`. Demucs separates the source into `vocals.wav` and `accompaniment.wav`; only the accompaniment enters the final mix. The two stems and a source-video checksum are cached in `storage/projects/<project-id>/separation`, so separation runs again only when the source video or configured model changes. The same shared subtitle burn pipeline used by normal Burn produces the final MP4.
+Each generated clip is validated with FFprobe and FFmpeg, fitted to its subtitle window when necessary, positioned at the subtitle start time, and mixed into a full-length `voice.wav`. Demucs separates the source into `vocals.wav` and `accompaniment.wav`; only the accompaniment enters the final mix. The two stems and a source-video checksum are cached in `storage/projects/<project-id>/separation`, so separation runs again only when the source video or configured model changes. Downloaded models use a short persistent application cache (`%LOCALAPPDATA%/CNCSubAI/demucs` on Windows or the platform cache directory on Linux) and are reused across projects. The same shared subtitle burn pipeline used by normal Burn produces the final MP4.
 
 When Demucs is unavailable, the UI shows the installation error and disables Replace Voice Only. Choose Replace Entire Audio to use the v1-compatible fallback, which discards all original audio and renders only the timed AI voice. CNCSub AI never silently changes a submitted dubbing mode.
 

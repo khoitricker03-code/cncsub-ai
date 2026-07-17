@@ -32,8 +32,11 @@ import {
 import {
   buildDemucsArgs,
   findDemucsPython,
+  getDemucsFailure,
+  getDemucsModelCachePaths,
   getDemucsOutputPaths,
   isSeparationManifest,
+  parseDemucsProgress,
 } from "../lib/demucs.ts";
 import {
   getDefaultEdgeVoice,
@@ -142,6 +145,48 @@ test("separated-audio cache is invalidated when the source or model changes", ()
   assert.equal(isSeparationManifest(manifest, "source-a", "htdemucs"), true);
   assert.equal(isSeparationManifest(manifest, "source-b", "htdemucs"), false);
   assert.equal(isSeparationManifest(manifest, "source-a", "htdemucs_ft"), false);
+});
+
+test("the Hugging Face authentication warning is non-fatal when Demucs succeeds", () => {
+  assert.equal(getDemucsFailure({
+    code: 0,
+    stdout: "Separated tracks will be stored in output",
+    stderr: "Warning: You are sending unauthenticated requests to the HF Hub.",
+  }), null);
+});
+
+test("Demucs failures include the exit code and output after non-fatal warnings", () => {
+  const failure = getDemucsFailure({
+    code: 1,
+    stdout: "Traceback (most recent call last):\nPermissionError: [WinError 5] Access is denied",
+    stderr: "Warning: You are sending unauthenticated requests to the HF Hub.",
+  });
+  assert.match(failure ?? "", /exited with code 1/i);
+  assert.match(failure ?? "", /model cache or output directory is not writable/i);
+  assert.match(failure ?? "", /PermissionError: \[WinError 5\] Access is denied/);
+  assert.match(failure ?? "", /Non-fatal warning ignored/i);
+});
+
+test("Demucs reports model download and separation progress separately", () => {
+  assert.deepEqual(
+    parseDemucsProgress('Downloading: "https://example.test/model.th" to cache'),
+    { kind: "download", percent: 0, phase: "Downloading Demucs model" },
+  );
+  assert.deepEqual(
+    parseDemucsProgress(" 42%|####| 42.0MiB/100MiB [00:02<00:03, 20MiB/s]"),
+    { kind: "download", percent: 42, phase: "Downloading Demucs model (42%)" },
+  );
+  assert.deepEqual(
+    parseDemucsProgress(" 67%|####| 23.4/35.1 [00:11<00:05, 2.12seconds/s]"),
+    { kind: "separation", percent: 67, phase: "Separating vocals and background (67%)" },
+  );
+});
+
+test("Demucs model downloads use a persistent configurable application cache", () => {
+  const cache = getDemucsModelCachePaths(path.join("CNCSubAI", "demucs-models"));
+  assert.equal(cache.root, path.resolve(path.join("CNCSubAI", "demucs-models")));
+  assert.equal(cache.torchHome, path.join(cache.root, "torch"));
+  assert.equal(cache.huggingFaceHome, path.join(cache.root, "huggingface"));
 });
 
 test("missing Demucs reports the installation command", async () => {

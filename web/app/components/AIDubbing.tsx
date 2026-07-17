@@ -358,7 +358,7 @@ export default function AIDubbing({
           <p className="text-sm text-gray-300">{phase || "Working"} — {progress}%</p>
         </div>
       )}
-      {error && <p className="text-sm text-red-400">Error: {error}</p>}
+      {error && <p className="whitespace-pre-wrap text-sm text-red-400">Error: {error}</p>}
     </div>
   );
 }
