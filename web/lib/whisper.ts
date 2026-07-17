@@ -2,6 +2,8 @@ import { execFile } from "child_process";
 import path from "path";
 import { promisify } from "util";
 
+import { getPythonExecutable, logPythonExecutable } from "./python.ts";
+
 const execFileAsync = promisify(execFile);
 
 const TRANSCRIBE_TIMEOUT = 30 * 60 * 1000;
@@ -76,9 +78,14 @@ export async function transcribeVideo(
     "scripts",
     "transcribe.py",
   );
+  const pythonExecutable = getPythonExecutable();
+  logPythonExecutable("whisper", pythonExecutable, {
+    operation: "transcribe",
+    script: pythonScript,
+  });
 
   const { stdout, stderr } = await execFileAsync(
-    "python",
+    pythonExecutable,
     [pythonScript, videoPath],
     {
       cwd: process.cwd(),

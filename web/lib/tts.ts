@@ -8,6 +8,7 @@ import {
   formatEdgeRate,
   type TTSOptions,
 } from "./tts-config.ts";
+import { getPythonExecutable, logPythonExecutable } from "./python.ts";
 
 export type { TTSOptions } from "./tts-config.ts";
 
@@ -27,14 +28,10 @@ type ProcessOutcome = {
   error?: NodeJS.ErrnoException;
 };
 
-const DEFAULT_PYTHON_CANDIDATES: PythonCommand[] = [
-  ...(process.env.PYTHON_BIN
-    ? [{ command: process.env.PYTHON_BIN, prefixArgs: [], displayName: process.env.PYTHON_BIN }]
-    : []),
-  { command: "python", prefixArgs: [], displayName: "python" },
-  { command: "python3", prefixArgs: [], displayName: "python3" },
-  { command: "py", prefixArgs: ["-3"], displayName: "py -3" },
-];
+function getDefaultPythonCandidates(): PythonCommand[] {
+  const command = getPythonExecutable();
+  return [{ command, prefixArgs: [], displayName: command }];
+}
 
 let cachedPython: PythonCommand | null = null;
 
@@ -64,8 +61,16 @@ function runProcess(command: string, args: string[], signal?: AbortSignal): Prom
 }
 
 async function probePython(candidate: PythonCommand): Promise<PythonProbeResult> {
+  logPythonExecutable("diagnostics", candidate.command, {
+    dependency: "edge-tts",
+    operation: "python-version",
+  });
   const version = await runProcess(candidate.command, [...candidate.prefixArgs, "--version"]);
   if (version.error || version.code !== 0) return "unavailable";
+  logPythonExecutable("diagnostics", candidate.command, {
+    dependency: "edge-tts",
+    operation: "module-probe",
+  });
   const edgeTts = await runProcess(candidate.command, [
     ...candidate.prefixArgs,
     "-m",
@@ -77,9 +82,18 @@ async function probePython(candidate: PythonCommand): Promise<PythonProbeResult>
 
 export async function findEdgeTtsPython(
   probe: PythonProbe = probePython,
-  candidates: PythonCommand[] = DEFAULT_PYTHON_CANDIDATES,
+  candidates: PythonCommand[] = getDefaultPythonCandidates(),
 ): Promise<PythonCommand> {
-  if (probe === probePython && cachedPython) return cachedPython;
+  if (
+    probe === probePython
+    && cachedPython
+    && candidates.some((candidate) => (
+      candidate.command === cachedPython?.command
+      && JSON.stringify(candidate.prefixArgs) === JSON.stringify(cachedPython.prefixArgs)
+    ))
+  ) {
+    return cachedPython;
+  }
   let pythonFound = false;
   for (const candidate of candidates) {
     const result = await probe(candidate);
@@ -134,6 +148,10 @@ export async function synthesizeSegment(
   await fs.rm(outPath, { force: true });
 
   try {
+    logPythonExecutable("tts", python.command, {
+      operation: "synthesize",
+      voice: options.voice,
+    });
     const outcome = await runProcess(python.command, [
       ...python.prefixArgs,
       "-m",

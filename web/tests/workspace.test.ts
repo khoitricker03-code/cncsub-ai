@@ -22,6 +22,7 @@ import {
   splitSegment,
 } from "../lib/segment-editor.ts";
 import { LocalJobQueue } from "../lib/queue/local-queue.ts";
+import { getPythonExecutable } from "../lib/python.ts";
 import nextConfig from "../next.config.ts";
 import { buildSubtitleFilter } from "../lib/ffmpeg.ts";
 import {
@@ -54,6 +55,32 @@ test("Next.js proxy accepts the 500 MB upload pipeline", () => {
 test("subtitle filters avoid Windows drive-letter parsing by using only the filename", () => {
   const filter = buildSubtitleFilter("C:\\Users\\PC\\Dub Jobs\\translated.srt");
   assert.equal(filter, "subtitles=filename='translated.srt'");
+});
+
+test("Python subprocesses resolve only PYTHON_PATH or python", async () => {
+  const configured = "E:\\cncsub-ai-env\\Scripts\\python.exe";
+  const originalPythonPath = process.env.PYTHON_PATH;
+  try {
+    process.env.PYTHON_PATH = configured;
+    assert.equal(getPythonExecutable(), configured);
+    delete process.env.PYTHON_PATH;
+    assert.equal(getPythonExecutable(), "python");
+  } finally {
+    if (originalPythonPath === undefined) delete process.env.PYTHON_PATH;
+    else process.env.PYTHON_PATH = originalPythonPath;
+  }
+
+  const [whisper, demucs, tts] = await Promise.all([
+    readFile(new URL("../lib/whisper.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/demucs.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/tts.ts", import.meta.url), "utf8"),
+  ]);
+  const sources = [whisper, demucs, tts].join("\n");
+  const retiredSetting = ["PYTHON", "BIN"].join("_");
+  assert.doesNotMatch(sources, new RegExp(`${retiredSetting}|command:\\s*["']python3["']|command:\\s*["']py["']`));
+  assert.match(whisper, /getPythonExecutable\(\)/);
+  assert.match(demucs, /logPythonExecutable\("demucs"/);
+  assert.match(tts, /logPythonExecutable\("tts"/);
 });
 
 test("AI Dubbing delegates subtitle rendering to the shared burn pipeline", async () => {

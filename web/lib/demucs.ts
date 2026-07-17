@@ -6,6 +6,7 @@ import { homedir } from "os";
 import path from "path";
 
 import { probeAudio, runFfmpeg } from "./ffmpeg.ts";
+import { getPythonExecutable, logPythonExecutable } from "./python.ts";
 
 export type DemucsPythonCommand = {
   command: string;
@@ -77,14 +78,10 @@ export type SeparationResult = {
   cacheHit: boolean;
 };
 
-const DEFAULT_PYTHON_CANDIDATES: DemucsPythonCommand[] = [
-  ...(process.env.PYTHON_BIN
-    ? [{ command: process.env.PYTHON_BIN, prefixArgs: [], displayName: process.env.PYTHON_BIN }]
-    : []),
-  { command: "python", prefixArgs: [], displayName: "python" },
-  { command: "python3", prefixArgs: [], displayName: "python3" },
-  { command: "py", prefixArgs: ["-3"], displayName: "py -3" },
-];
+function getDefaultPythonCandidates(): DemucsPythonCommand[] {
+  const command = getPythonExecutable();
+  return [{ command, prefixArgs: [], displayName: command }];
+}
 
 let cachedPython: DemucsPythonCommand | null = null;
 let cachedTorchProbe: {
@@ -312,6 +309,10 @@ async function readTorchProbe(
   const pythonKey = JSON.stringify([python.command, ...python.prefixArgs]);
   if (cachedTorchProbe?.pythonKey === pythonKey) return cachedTorchProbe.result;
 
+  logPythonExecutable("diagnostics", python.command, {
+    dependency: "demucs",
+    operation: "torch-device-probe",
+  });
   const outcome = await runProcess(
     python.command,
     [...python.prefixArgs, "-c", TORCH_DEVICE_PROBE],
@@ -426,8 +427,16 @@ export function getDemucsModelCachePaths(override?: string): DemucsModelCachePat
 }
 
 async function probePython(candidate: DemucsPythonCommand): Promise<DemucsProbeResult> {
+  logPythonExecutable("diagnostics", candidate.command, {
+    dependency: "demucs",
+    operation: "python-version",
+  });
   const version = await runProcess(candidate.command, [...candidate.prefixArgs, "--version"]);
   if (version.error || version.code !== 0) return "unavailable";
+  logPythonExecutable("diagnostics", candidate.command, {
+    dependency: "demucs",
+    operation: "module-probe",
+  });
   const demucs = await runProcess(candidate.command, [
     ...candidate.prefixArgs,
     "-m",
@@ -439,9 +448,18 @@ async function probePython(candidate: DemucsPythonCommand): Promise<DemucsProbeR
 
 export async function findDemucsPython(
   probe: DemucsProbe = probePython,
-  candidates: DemucsPythonCommand[] = DEFAULT_PYTHON_CANDIDATES,
+  candidates: DemucsPythonCommand[] = getDefaultPythonCandidates(),
 ): Promise<DemucsPythonCommand> {
-  if (probe === probePython && cachedPython) return cachedPython;
+  if (
+    probe === probePython
+    && cachedPython
+    && candidates.some((candidate) => (
+      candidate.command === cachedPython?.command
+      && JSON.stringify(candidate.prefixArgs) === JSON.stringify(cachedPython.prefixArgs)
+    ))
+  ) {
+    return cachedPython;
+  }
   let pythonFound = false;
   for (const candidate of candidates) {
     const result = await probe(candidate);
@@ -680,6 +698,12 @@ export async function ensureSeparatedAudio(options: {
         torchVersion: deviceSelection.torchVersion,
         cudaAvailable: deviceSelection.cudaAvailable,
         selectedDevice: deviceSelection.selectedDevice,
+        model,
+        executionDevice: device,
+        attempt,
+      });
+      logPythonExecutable("demucs", python.command, {
+        operation: "separate",
         model,
         executionDevice: device,
         attempt,

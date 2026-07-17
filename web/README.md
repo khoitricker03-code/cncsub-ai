@@ -12,7 +12,7 @@ python -m edge_tts --version
 python -m demucs --help
 ```
 
-Linux users can use `python3 -m pip install edge-tts demucs`. CNCSub AI detects `python`, `python3`, and the Windows `py -3` launcher. Set `PYTHON_BIN` in `.env.local` to an absolute Python executable when none of those commands resolve to the desired interpreter. Demucs downloads its configured model on the first separation; CPU separation works but can be substantially slower than a supported GPU.
+Linux users can use `python3 -m pip install edge-tts demucs`. CNCSub AI uses `PYTHON_PATH` when configured and otherwise runs `python`. Set `PYTHON_PATH` in `.env.local` to the absolute executable for the environment that contains Faster-Whisper, Edge TTS, Demucs, and the intended PyTorch build. Demucs downloads its configured model on the first separation; CPU separation works but can be substantially slower than a supported GPU.
 
 ```powershell
 ollama pull qwen2.5:7b
@@ -35,7 +35,7 @@ Copy `.env.example` to `.env.local`. The supported local defaults are:
 - `LOCAL_MODEL=qwen2.5:7b`
 - `TRANSLATION_PROVIDER=local` and `REWRITE_PROVIDER=local`
 - `JOB_QUEUE=local` for restart-safe JSON job persistence
-- `PYTHON_BIN=` optionally selects the Python executable used by AI Dubbing
+- `PYTHON_PATH=` optionally selects the Python executable used by Whisper, AI Dubbing, and health diagnostics
 - `DEMUCS_MODEL=htdemucs` selects the source-separation model
 - `DEMUCS_CACHE_DIR=` optionally selects a short, writable persistent model-cache directory
 - `DEMUCS_TIMEOUT_MS=1800000` optionally changes the model-download/separation timeout
