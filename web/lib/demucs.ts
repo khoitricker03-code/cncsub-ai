@@ -38,6 +38,22 @@ export type DemucsProgressUpdate = {
   phase: string;
 };
 
+export type DemucsDevice = "cuda" | "cpu";
+
+export type DemucsTorchProbe = {
+  torchVersion: string;
+  torchCudaVersion: string | null;
+  cudaAvailable: boolean;
+  cudaDeviceCount: number;
+  cudaDeviceName: string | null;
+  cudaInitializationError: string | null;
+};
+
+export type DemucsDeviceSelection = DemucsTorchProbe & {
+  selectedDevice: DemucsDevice;
+  reason: string | null;
+};
+
 export type DemucsModelCachePaths = {
   root: string;
   torchHome: string;
@@ -71,10 +87,38 @@ const DEFAULT_PYTHON_CANDIDATES: DemucsPythonCommand[] = [
 ];
 
 let cachedPython: DemucsPythonCommand | null = null;
+let cachedTorchProbe: {
+  pythonKey: string;
+  result: DemucsTorchProbe;
+} | null = null;
 
 const MAX_PROCESS_OUTPUT = 200_000;
 const DEFAULT_DEMUCS_TIMEOUT_MS = 30 * 60 * 1_000;
 const HF_AUTH_WARNING = /unauthenticated requests to the HF Hub/i;
+const TORCH_DEVICE_PROBE = [
+  "import json",
+  "import torch",
+  "cuda_available = bool(torch.cuda.is_available())",
+  "device_count = int(torch.cuda.device_count())",
+  "device_name = None",
+  "initialization_error = None",
+  "if cuda_available or torch.version.cuda is not None:",
+  "    try:",
+  "        tensor = torch.zeros(1, device='cuda')",
+  "        torch.cuda.synchronize()",
+  "        device_name = torch.cuda.get_device_name(0)",
+  "        del tensor",
+  "    except Exception as error:",
+  "        initialization_error = f'{type(error).__name__}: {error}'",
+  "print(json.dumps({",
+  "    'torchVersion': str(torch.__version__),",
+  "    'torchCudaVersion': torch.version.cuda,",
+  "    'cudaAvailable': cuda_available,",
+  "    'cudaDeviceCount': device_count,",
+  "    'cudaDeviceName': device_name,",
+  "    'cudaInitializationError': initialization_error,",
+  "}))",
+].join("\n");
 
 function appendOutput(current: string, value: string) {
   const next = current + value;
@@ -182,6 +226,140 @@ function formatCapturedOutput(outcome: DemucsProcessOutcome) {
   return sections.join("\n\n");
 }
 
+function writeDemucsDiagnostic(
+  level: "info" | "warn",
+  event: string,
+  context: Record<string, unknown>,
+) {
+  const output = JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level,
+    event,
+    ...context,
+  });
+  if (level === "warn") console.warn(output);
+  else console.info(output);
+}
+
+export function selectDemucsDevice(
+  probe: DemucsTorchProbe,
+): DemucsDeviceSelection {
+  if (probe.cudaAvailable && !probe.cudaInitializationError) {
+    return {
+      ...probe,
+      selectedDevice: "cuda",
+      reason: null,
+    };
+  }
+
+  let reason: string;
+  if (probe.cudaInitializationError) {
+    reason = `GPU is not being used because CUDA initialization failed: ${probe.cudaInitializationError}`;
+  } else if (probe.torchCudaVersion === null) {
+    reason = [
+      `GPU is not being used because PyTorch ${probe.torchVersion} is a CPU-only build`,
+      "(torch.version.cuda is null and torch.cuda.is_available() is false).",
+    ].join(" ");
+  } else if (probe.cudaDeviceCount === 0) {
+    reason = [
+      "GPU is not being used because torch.cuda.is_available() returned false",
+      `and PyTorch detected 0 CUDA devices with CUDA runtime ${probe.torchCudaVersion}.`,
+    ].join(" ");
+  } else {
+    reason = [
+      "GPU is not being used because torch.cuda.is_available() returned false",
+      `(CUDA runtime ${probe.torchCudaVersion}; detected devices: ${probe.cudaDeviceCount}).`,
+    ].join(" ");
+  }
+
+  return {
+    ...probe,
+    selectedDevice: "cpu",
+    reason,
+  };
+}
+
+function parseTorchProbe(stdout: string): DemucsTorchProbe | null {
+  const lines = stripTerminalFormatting(stdout)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .reverse();
+
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line) as Partial<DemucsTorchProbe>;
+      if (
+        typeof parsed.torchVersion === "string"
+        && (typeof parsed.torchCudaVersion === "string" || parsed.torchCudaVersion === null)
+        && typeof parsed.cudaAvailable === "boolean"
+        && typeof parsed.cudaDeviceCount === "number"
+        && (typeof parsed.cudaDeviceName === "string" || parsed.cudaDeviceName === null)
+        && (typeof parsed.cudaInitializationError === "string" || parsed.cudaInitializationError === null)
+      ) {
+        return parsed as DemucsTorchProbe;
+      }
+    } catch {
+      // Ignore Python warnings and inspect the next output line.
+    }
+  }
+  return null;
+}
+
+async function readTorchProbe(
+  python: DemucsPythonCommand,
+): Promise<DemucsTorchProbe> {
+  const pythonKey = JSON.stringify([python.command, ...python.prefixArgs]);
+  if (cachedTorchProbe?.pythonKey === pythonKey) return cachedTorchProbe.result;
+
+  const outcome = await runProcess(
+    python.command,
+    [...python.prefixArgs, "-c", TORCH_DEVICE_PROBE],
+  );
+  const parsed = parseTorchProbe(outcome.stdout);
+  if (outcome.error || outcome.code !== 0 || !parsed) {
+    const failure = outcome.error
+      ? `Unable to start ${python.displayName}: ${outcome.error.message}`
+      : outcome.code !== 0
+        ? `PyTorch device probe exited with code ${outcome.code}.`
+        : "PyTorch device probe did not return valid JSON.";
+    const output = formatCapturedOutput(outcome);
+    throw new Error([failure, output].filter(Boolean).join("\n\n"));
+  }
+
+  cachedTorchProbe = { pythonKey, result: parsed };
+  return parsed;
+}
+
+export async function getDemucsDeviceSelection(
+  python?: DemucsPythonCommand,
+  model = getDemucsModel(),
+): Promise<DemucsDeviceSelection> {
+  const selectedPython = python ?? await findDemucsPython();
+  const selection = selectDemucsDevice(await readTorchProbe(selectedPython));
+  writeDemucsDiagnostic("info", "demucs.device_selection", {
+    python: selectedPython.displayName,
+    torchVersion: selection.torchVersion,
+    torchCudaVersion: selection.torchCudaVersion,
+    cudaAvailable: selection.cudaAvailable,
+    cudaDeviceCount: selection.cudaDeviceCount,
+    cudaDeviceName: selection.cudaDeviceName,
+    cudaInitializationError: selection.cudaInitializationError,
+    selectedDevice: selection.selectedDevice,
+    model,
+    reason: selection.reason,
+  });
+  return selection;
+}
+
+export function isCudaInitializationFailure(outcome: DemucsProcessOutcome) {
+  if (!outcome.error && !outcome.timedOut && outcome.code === 0) return false;
+  const output = `${outcome.stderr}\n${outcome.stdout}`;
+  return /CUDA (?:driver )?initialization|CUDA error:\s*initialization error|driver initialization failed|CUDA driver version is insufficient|Found no NVIDIA driver|Torch not compiled with CUDA|cudaGetDeviceCount/i.test(
+    output,
+  );
+}
+
 export function getDemucsFailure(
   outcome: DemucsProcessOutcome,
   displayName = "python",
@@ -282,9 +460,21 @@ export async function findDemucsPython(
 export async function getDemucsHealth() {
   try {
     const python = await findDemucsPython();
+    const model = getDemucsModel();
+    const device = await getDemucsDeviceSelection(python, model);
     return {
       ok: true,
-      message: `Demucs is available through ${python.displayName}.`,
+      message: [
+        `Demucs is available through ${python.displayName}.`,
+        `Torch ${device.torchVersion}; CUDA availability: ${device.cudaAvailable}; selected device: ${device.selectedDevice}.`,
+        device.reason,
+      ].filter(Boolean).join(" "),
+      model,
+      torchVersion: device.torchVersion,
+      torchCudaVersion: device.torchCudaVersion,
+      cudaAvailable: device.cudaAvailable,
+      selectedDevice: device.selectedDevice,
+      deviceReason: device.reason,
     };
   } catch (error) {
     return {
@@ -302,7 +492,12 @@ export function getDemucsModel() {
   return model;
 }
 
-export function buildDemucsArgs(sourceAudio: string, outputDir: string, model: string) {
+export function buildDemucsArgs(
+  sourceAudio: string,
+  outputDir: string,
+  model: string,
+  device: DemucsDevice,
+) {
   return [
     "-m",
     "demucs",
@@ -310,6 +505,8 @@ export function buildDemucsArgs(sourceAudio: string, outputDir: string, model: s
     "vocals",
     "--name",
     model,
+    "--device",
+    device,
     "--out",
     outputDir,
     sourceAudio,
@@ -407,6 +604,7 @@ export async function ensureSeparatedAudio(options: {
   }
 
   const python = await findDemucsPython();
+  const deviceSelection = await getDemucsDeviceSelection(python, model);
   await fs.mkdir(cacheDir, { recursive: true });
   const modelCache = getDemucsModelCachePaths();
   try {
@@ -447,7 +645,9 @@ export async function ensureSeparatedAudio(options: {
 
     onProgress?.(modelPhase, 15);
     onProgress?.(
-      modelWasCached ? "Starting Demucs with the cached model" : "Downloading the Demucs model if needed",
+      modelWasCached
+        ? `Starting Demucs with the cached model on ${deviceSelection.selectedDevice.toUpperCase()}`
+        : `Downloading the Demucs model if needed; selected device: ${deviceSelection.selectedDevice.toUpperCase()}`,
       18,
     );
     let progressBuffer = "";
@@ -467,26 +667,64 @@ export async function ensureSeparatedAudio(options: {
       emittedProgress = reportedProgress;
       onProgress?.(progress.phase, Math.min(34, reportedProgress));
     };
-    const outcome = await runProcess(
-      python.command,
-      [...python.prefixArgs, ...buildDemucsArgs(sourceAudio, demucsOutput, model)],
-      {
-        signal,
-        timeoutMs: getDemucsTimeoutMs(),
-        env: {
-          ...process.env,
-          TORCH_HOME: modelCache.torchHome,
-          HF_HOME: modelCache.huggingFaceHome,
-          HF_HUB_CACHE: path.join(modelCache.huggingFaceHome, "hub"),
-          HUGGINGFACE_HUB_CACHE: path.join(modelCache.huggingFaceHome, "hub"),
+    const demucsEnv = {
+      ...process.env,
+      TORCH_HOME: modelCache.torchHome,
+      HF_HOME: modelCache.huggingFaceHome,
+      HF_HUB_CACHE: path.join(modelCache.huggingFaceHome, "hub"),
+      HUGGINGFACE_HUB_CACHE: path.join(modelCache.huggingFaceHome, "hub"),
+    };
+    const executeDemucs = (device: DemucsDevice, attempt: number) => {
+      writeDemucsDiagnostic("info", "demucs.execution", {
+        python: python.displayName,
+        torchVersion: deviceSelection.torchVersion,
+        cudaAvailable: deviceSelection.cudaAvailable,
+        selectedDevice: deviceSelection.selectedDevice,
+        model,
+        executionDevice: device,
+        attempt,
+      });
+      return runProcess(
+        python.command,
+        [...python.prefixArgs, ...buildDemucsArgs(sourceAudio, demucsOutput, model, device)],
+        {
+          signal,
+          timeoutMs: getDemucsTimeoutMs(),
+          env: demucsEnv,
+          onStdout: reportProcessProgress,
+          onStderr: reportProcessProgress,
         },
-        onStdout: reportProcessProgress,
-        onStderr: reportProcessProgress,
-      },
-    );
+      );
+    };
+
+    let executionDevice = deviceSelection.selectedDevice;
+    let outcome = await executeDemucs(executionDevice, 1);
+    let cudaFailure: string | null = null;
+    if (executionDevice === "cuda" && isCudaInitializationFailure(outcome)) {
+      cudaFailure = getDemucsFailure(outcome, python.displayName)
+        ?? "Demucs failed during CUDA execution for an unknown reason.";
+      writeDemucsDiagnostic("warn", "demucs.cuda_fallback", {
+        python: python.displayName,
+        torchVersion: deviceSelection.torchVersion,
+        cudaAvailable: deviceSelection.cudaAvailable,
+        selectedDevice: deviceSelection.selectedDevice,
+        model,
+        executionDevice: "cpu",
+        reason: cudaFailure,
+      });
+      onProgress?.("CUDA initialization failed; retrying Demucs on CPU", Math.max(18, reportedProgress));
+      await fs.rm(demucsOutput, { recursive: true, force: true });
+      executionDevice = "cpu";
+      outcome = await executeDemucs(executionDevice, 2);
+    }
     if (signal?.aborted) throw new DOMException("Operation cancelled", "AbortError");
     const failure = getDemucsFailure(outcome, python.displayName);
-    if (failure) throw new Error(failure);
+    if (failure) {
+      throw new Error([
+        cudaFailure ? `CUDA initialization failed before the CPU fallback:\n${cudaFailure}` : null,
+        failure,
+      ].filter(Boolean).join("\n\n"));
+    }
 
     const separated = getDemucsOutputPaths(demucsOutput, model, sourceAudio);
     try {

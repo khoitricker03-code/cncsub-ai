@@ -35,8 +35,10 @@ import {
   getDemucsFailure,
   getDemucsModelCachePaths,
   getDemucsOutputPaths,
+  isCudaInitializationFailure,
   isSeparationManifest,
   parseDemucsProgress,
+  selectDemucsDevice,
 } from "../lib/demucs.ts";
 import {
   getDefaultEdgeVoice,
@@ -122,15 +124,76 @@ test("Replace Entire Audio fallback uses only the AI voice input", () => {
 });
 
 test("Demucs runs two-stem vocal separation and locates both output stems", () => {
-  const args = buildDemucsArgs("C:\\source audio.wav", "C:\\project\\separation-work", "htdemucs");
-  assert.deepEqual(args.slice(0, 7), [
-    "-m", "demucs", "--two-stems", "vocals", "--name", "htdemucs", "--out",
+  const args = buildDemucsArgs(
+    "C:\\source audio.wav",
+    "C:\\project\\separation-work",
+    "htdemucs",
+    "cuda",
+  );
+  assert.deepEqual(args.slice(0, 9), [
+    "-m", "demucs", "--two-stems", "vocals", "--name", "htdemucs", "--device", "cuda", "--out",
   ]);
   assert.equal(args.at(-1), "C:\\source audio.wav");
 
   const output = getDemucsOutputPaths("out", "htdemucs", "source.wav");
   assert.equal(output.vocalsPath, path.join("out", "htdemucs", "source", "vocals.wav"));
   assert.equal(output.accompanimentPath, path.join("out", "htdemucs", "source", "no_vocals.wav"));
+});
+
+test("Demucs selects CUDA when PyTorch can initialize the GPU", () => {
+  const selection = selectDemucsDevice({
+    torchVersion: "2.6.0+cu124",
+    torchCudaVersion: "12.4",
+    cudaAvailable: true,
+    cudaDeviceCount: 1,
+    cudaDeviceName: "NVIDIA GeForce RTX 2060",
+    cudaInitializationError: null,
+  });
+  assert.equal(selection.selectedDevice, "cuda");
+  assert.equal(selection.reason, null);
+});
+
+test("Demucs reports a CPU-only PyTorch build as the exact reason CUDA is unavailable", () => {
+  const selection = selectDemucsDevice({
+    torchVersion: "2.13.0+cpu",
+    torchCudaVersion: null,
+    cudaAvailable: false,
+    cudaDeviceCount: 0,
+    cudaDeviceName: null,
+    cudaInitializationError: null,
+  });
+  assert.equal(selection.selectedDevice, "cpu");
+  assert.match(selection.reason ?? "", /PyTorch 2\.13\.0\+cpu is a CPU-only build/);
+  assert.match(selection.reason ?? "", /torch\.cuda\.is_available\(\) is false/);
+});
+
+test("Demucs falls back to CPU only for a CUDA initialization failure", () => {
+  const selection = selectDemucsDevice({
+    torchVersion: "2.6.0+cu124",
+    torchCudaVersion: "12.4",
+    cudaAvailable: true,
+    cudaDeviceCount: 1,
+    cudaDeviceName: "NVIDIA GeForce RTX 2060",
+    cudaInitializationError: "RuntimeError: CUDA driver initialization failed",
+  });
+  assert.equal(selection.selectedDevice, "cpu");
+  assert.match(selection.reason ?? "", /CUDA initialization failed.*driver initialization failed/);
+
+  assert.equal(isCudaInitializationFailure({
+    code: 1,
+    stdout: "",
+    stderr: "RuntimeError: CUDA error: initialization error",
+  }), true);
+  assert.equal(isCudaInitializationFailure({
+    code: 1,
+    stdout: "",
+    stderr: "ConnectionError: model download failed",
+  }), false);
+  assert.equal(isCudaInitializationFailure({
+    code: 1,
+    stdout: "",
+    stderr: "torch.OutOfMemoryError: CUDA out of memory",
+  }), false);
 });
 
 test("separated-audio cache is invalidated when the source or model changes", () => {
