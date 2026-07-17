@@ -16,6 +16,7 @@ type VideoPlayerProps = {
   onPlayerReady: (seek: (time: number) => void) => void;
   onSegmentChange: (segment: SubtitleSegment) => void;
   useRendered?: boolean;
+  renderRevision?: number;
 };
 
 function formatPlaybackTime(seconds: number): string {
@@ -29,6 +30,7 @@ export default function VideoPlayer({
   onPlayerReady,
   onSegmentChange,
   useRendered = false,
+  renderRevision = 0,
 }: VideoPlayerProps) {
   const {
     videoRef,
@@ -56,7 +58,7 @@ export default function VideoPlayer({
     <section className="space-y-4 rounded-2xl border border-gray-800 bg-gray-900 p-4">
       <video
         ref={videoRef}
-        src={`/api/projects/${projectId}/video${useRendered ? "?rendered=true" : ""}`}
+        src={`/api/projects/${projectId}/video${useRendered ? `?rendered=true&revision=${renderRevision}` : ""}`}
         className="aspect-video w-full rounded-xl bg-black"
         preload="metadata"
         playsInline

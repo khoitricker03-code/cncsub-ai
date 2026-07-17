@@ -97,7 +97,6 @@ export async function runDubbingJob(
             voice: options.voice,
             rate: options.rate,
             pitch: options.pitch,
-            language: options.language,
           },
           options.signal,
         );

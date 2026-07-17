@@ -5,10 +5,10 @@ export type TTSOptions = {
   voice: string;
   rate: number;
   pitch: number;
-  language: string;
 };
 
 export type DubbingOptions = TTSOptions & {
+  language: string;
   originalVolume: number;
   retries: number;
 };
