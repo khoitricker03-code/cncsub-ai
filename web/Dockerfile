@@ -9,7 +9,8 @@ RUN npm run build
 
 FROM node:20-bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg python3 python3-pip && rm -rf /var/lib/apt/lists/*
-RUN pip3 install --no-cache-dir --break-system-packages edge-tts
+RUN pip3 install --no-cache-dir --break-system-packages --index-url https://download.pytorch.org/whl/cpu torch torchaudio
+RUN pip3 install --no-cache-dir --break-system-packages edge-tts demucs
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/package.json /app/package-lock.json ./

@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 
 import { OllamaClient, getTranslationModel } from "./ai/ollama-client";
+import { getDemucsHealth } from "./demucs";
 import { getEdgeTtsHealth } from "./tts";
 
 export type DependencyHealth = { ok: boolean; message: string };
@@ -20,10 +21,11 @@ async function commandHealth(command: string, args: string[]): Promise<Dependenc
 }
 
 export async function validateStartup() {
-  const [ffmpeg, ffprobe, edgeTts, ollama] = await Promise.all([
+  const [ffmpeg, ffprobe, edgeTts, demucs, ollama] = await Promise.all([
     commandHealth("ffmpeg", ["-version"]),
     commandHealth("ffprobe", ["-version"]),
     getEdgeTtsHealth(),
+    getDemucsHealth(),
     new OllamaClient({ model: getTranslationModel() }).health(),
   ]);
   return {
@@ -32,6 +34,10 @@ export async function validateStartup() {
       ffmpeg,
       ffprobe,
       edgeTts,
+      demucs: {
+        ...demucs,
+        required: false,
+      },
       ollama: {
         ok: ollama.ok,
         message: ollama.ok ? `Ollama model ${ollama.model} is ready.` : ollama.error ?? "Ollama is unavailable.",

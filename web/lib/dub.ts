@@ -2,11 +2,12 @@ import path from "path";
 import { promises as fs } from "fs";
 
 import {
-  buildOriginalAudioMixFilter,
+  buildSeparatedAudioMixFilter,
+  buildVoiceOnlyMixFilter,
   buildVoiceTimelineFilter,
-  getOriginalAudioMode,
   type TimedAudioClip,
 } from "@/lib/dub-audio";
+import { ensureSeparatedAudio, type SeparationResult } from "@/lib/demucs";
 import {
   analyzeAudioVolume,
   probeAudio,
@@ -24,7 +25,10 @@ export type DubbingSegment = {
   text: string;
 };
 
-type DubbingJobOptions = DubbingOptions & { signal?: AbortSignal };
+type DubbingJobOptions = DubbingOptions & {
+  signal?: AbortSignal;
+  separationCacheDir?: string;
+};
 
 function validateSegments(segments: DubbingSegment[]) {
   if (!segments.length) throw new Error("No translated subtitle segments are available for dubbing.");
@@ -66,13 +70,34 @@ export async function runDubbingJob(
   outDir: string,
   options: DubbingJobOptions,
   onProgress: (phase: string, percent: number) => void,
-): Promise<{ voicePath: string; mixedPath: string; clipPaths: string[] }> {
+): Promise<{
+  voicePath: string;
+  mixedPath: string;
+  clipPaths: string[];
+  separation: SeparationResult | null;
+}> {
   validateSegments(segments);
   ensureNotCancelled(options.signal);
   await fs.mkdir(outDir, { recursive: true });
   const video = await probeVideo(inputVideo);
   if (video.duration <= 0) throw new Error("The source video has no valid duration.");
-  onProgress("Preparing Edge TTS", 5);
+
+  let separation: SeparationResult | null = null;
+  if (options.mode === "replace-vocals") {
+    if (!video.audioCodec) {
+      throw new Error("The source video has no audio stream for Demucs separation.");
+    }
+    if (!options.separationCacheDir) {
+      throw new Error("A project separation cache directory is required for Replace Voice Only mode.");
+    }
+    separation = await ensureSeparatedAudio({
+      inputVideo,
+      cacheDir: options.separationCacheDir,
+      signal: options.signal,
+      onProgress,
+    });
+  }
+  onProgress("Preparing Edge TTS", options.mode === "replace-vocals" ? 38 : 5);
 
   const timedClips: TimedAudioClip[] = [];
   const clipPaths: string[] = [];
@@ -81,7 +106,8 @@ export async function runDubbingJob(
     const clipPath = path.join(outDir, `clip-${segment.id}.mp3`);
     onProgress(
       `Generating speech for subtitle ${segment.id}`,
-      10 + Math.round(((index + 1) / segments.length) * 45),
+      (options.mode === "replace-vocals" ? 40 : 10)
+        + Math.round(((index + 1) / segments.length) * (options.mode === "replace-vocals" ? 30 : 55)),
     );
 
     let synthesized: Awaited<ReturnType<typeof synthesizeSegment>> | null = null;
@@ -126,7 +152,7 @@ export async function runDubbingJob(
   }
 
   ensureNotCancelled(options.signal);
-  onProgress("Synchronizing speech timeline", 60);
+  onProgress("Synchronizing speech timeline", 75);
   const voicePath = path.join(outDir, "voice.wav");
   const timelineArgs = clipPaths.flatMap((clipPath) => ["-i", clipPath]);
   await runFfmpeg([
@@ -147,22 +173,44 @@ export async function runDubbingJob(
   await verifyAudibleAudio(voicePath, "Timed AI voice track");
 
   ensureNotCancelled(options.signal);
-  onProgress("Preparing final audio", 75);
+  onProgress(
+    options.mode === "replace-vocals"
+      ? "Mixing AI voice with preserved music and sound effects"
+      : "Replacing the entire original audio track",
+    80,
+  );
   const mixedPath = path.join(outDir, "mixed.wav");
-  if (getOriginalAudioMode(options.originalVolume) === "voice-only") {
-    await fs.copyFile(voicePath, mixedPath);
-  } else {
-    if (!video.audioCodec) {
-      throw new Error("The source video has no original audio stream to retain.");
-    }
+  if (options.mode === "replace-vocals") {
+    if (!separation) throw new Error("Demucs separation did not produce an accompaniment track.");
     await runFfmpeg([
       "-y",
       "-i",
-      inputVideo,
+      separation.accompanimentPath,
       "-i",
       voicePath,
       "-filter_complex",
-      buildOriginalAudioMixFilter(options.originalVolume, video.duration),
+      buildSeparatedAudioMixFilter(
+        options.backgroundVolume,
+        options.voiceVolume,
+        video.duration,
+      ),
+      "-map",
+      "[mixed]",
+      "-c:a",
+      "pcm_s16le",
+      "-ar",
+      "48000",
+      "-ac",
+      "2",
+      mixedPath,
+    ], { signal: options.signal });
+  } else {
+    await runFfmpeg([
+      "-y",
+      "-i",
+      voicePath,
+      "-filter_complex",
+      buildVoiceOnlyMixFilter(options.voiceVolume, video.duration),
       "-map",
       "[mixed]",
       "-c:a",
@@ -175,6 +223,6 @@ export async function runDubbingJob(
     ], { signal: options.signal });
   }
   await verifyAudibleAudio(mixedPath, "Final dubbing audio track");
-  onProgress("Audio ready", 82);
-  return { voicePath, mixedPath, clipPaths };
+  onProgress("Audio ready", 84);
+  return { voicePath, mixedPath, clipPaths, separation };
 }

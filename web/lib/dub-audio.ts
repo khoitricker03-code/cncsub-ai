@@ -47,13 +47,31 @@ export function buildVoiceTimelineFilter(clips: TimedAudioClip[], videoDuration:
   return chains.join(";");
 }
 
-export function getOriginalAudioMode(originalVolume: number): "voice-only" | "mixed" {
-  return originalVolume === 0 ? "voice-only" : "mixed";
+function validateMixVolume(value: number, name: string) {
+  if (!Number.isFinite(value) || value < 0 || value > 2) {
+    throw new Error(`${name} must be between 0 and 2.`);
+  }
 }
 
-export function buildOriginalAudioMixFilter(originalVolume: number, videoDuration: number) {
-  if (!Number.isFinite(originalVolume) || originalVolume <= 0 || originalVolume > 1) {
-    throw new Error("originalVolume must be greater than 0 and at most 1 for audio mixing.");
+export function buildSeparatedAudioMixFilter(
+  backgroundVolume: number,
+  voiceVolume: number,
+  videoDuration: number,
+) {
+  validateMixVolume(backgroundVolume, "backgroundVolume");
+  validateMixVolume(voiceVolume, "voiceVolume");
+  if (!Number.isFinite(videoDuration) || videoDuration <= 0) {
+    throw new Error("Video duration must be positive.");
   }
-  return `[0:a]volume=${number(originalVolume)}[original];[original][1:a]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,apad=pad_dur=${number(videoDuration)},atrim=end=${number(videoDuration)}[mixed]`;
+  const duration = number(videoDuration);
+  return `[0:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${number(backgroundVolume)}[background];[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${number(voiceVolume)}[ai];[background][ai]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95,apad=pad_dur=${duration},atrim=end=${duration}[mixed]`;
+}
+
+export function buildVoiceOnlyMixFilter(voiceVolume: number, videoDuration: number) {
+  validateMixVolume(voiceVolume, "voiceVolume");
+  if (!Number.isFinite(videoDuration) || videoDuration <= 0) {
+    throw new Error("Video duration must be positive.");
+  }
+  const duration = number(videoDuration);
+  return `[0:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,volume=${number(voiceVolume)},alimiter=limit=0.95,apad=pad_dur=${duration},atrim=end=${duration}[mixed]`;
 }

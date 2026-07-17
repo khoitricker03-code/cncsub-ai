@@ -1,4 +1,5 @@
 export type TTSProvider = "edge";
+export type DubbingMode = "replace-vocals" | "replace-all";
 
 export type TTSOptions = {
   provider: TTSProvider;
@@ -9,7 +10,9 @@ export type TTSOptions = {
 
 export type DubbingOptions = TTSOptions & {
   language: string;
-  originalVolume: number;
+  mode: DubbingMode;
+  voiceVolume: number;
+  backgroundVolume: number;
   retries: number;
 };
 
@@ -57,7 +60,7 @@ function parseNumber(value: unknown, name: string, fallback: number, min: number
 export function parseDubbingOptions(input: Record<string, unknown>): DubbingOptions {
   const provider = input.provider ?? "edge";
   if (provider !== "edge") {
-    throw new Error(`Unsupported TTS provider: ${String(provider)}. AI Dubbing v1 supports only edge.`);
+    throw new Error(`Unsupported TTS provider: ${String(provider)}. AI Dubbing supports only edge.`);
   }
 
   const language = typeof input.language === "string" && input.language.trim()
@@ -74,13 +77,20 @@ export function parseDubbingOptions(input: Record<string, unknown>): DubbingOpti
     throw new Error("voice must be a valid Edge neural voice name.");
   }
 
+  const mode = input.mode ?? "replace-vocals";
+  if (mode !== "replace-vocals" && mode !== "replace-all") {
+    throw new Error("mode must be replace-vocals or replace-all.");
+  }
+
   return {
     provider,
     voice,
     language,
+    mode,
     rate: parseNumber(input.rate, "rate", 0, -50, 100),
     pitch: parseNumber(input.pitch, "pitch", 0, -100, 100),
-    originalVolume: parseNumber(input.originalVolume, "originalVolume", 0, 0, 1),
+    voiceVolume: parseNumber(input.voiceVolume, "voiceVolume", 1, 0, 2),
+    backgroundVolume: parseNumber(input.backgroundVolume, "backgroundVolume", 1, 0, 2),
     retries: Math.round(parseNumber(input.retries, "retries", 2, 0, 5)),
   };
 }

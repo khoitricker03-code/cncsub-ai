@@ -56,14 +56,21 @@ async function ensureFile(file: string) {
 function runProcess(
   command: string,
   args: string[],
-  options: { signal?: AbortSignal; onStderr?: (value: string) => void } = {},
+  options: {
+    signal?: AbortSignal;
+    onStderr?: (value: string) => void;
+    cwd?: string;
+  } = {},
 ): Promise<ProcessResult> {
   return new Promise((resolve, reject) => {
     if (options.signal?.aborted) {
       reject(new DOMException("Operation cancelled", "AbortError"));
       return;
     }
-    const child = spawn(command, args, { windowsHide: true });
+    const child = spawn(command, args, {
+      windowsHide: true,
+      cwd: options.cwd,
+    });
     let stdout = "";
     let stderr = "";
     let settled = false;
@@ -181,8 +188,8 @@ export async function hasNvenc() {
   }
 }
 
-export function escapeSubtitlePath(file: string) {
-  return path.resolve(file).replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
+export function escapeSubtitleFilename(file: string) {
+  return path.basename(file).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
 function styleFilter(style?: SubtitleStyle) {
@@ -202,6 +209,7 @@ function styleFilter(style?: SubtitleStyle) {
 
 async function encode(options: BurnSubtitleOptions, encoder: "h264_nvenc" | "libx264", duration: number) {
   const filter = buildSubtitleFilter(options.subtitleFile, options.style);
+  const subtitleDir = path.dirname(path.resolve(options.subtitleFile));
   const codecArgs = encoder === "h264_nvenc"
     ? ["-c:v", encoder, "-preset", "p4", "-cq", "23"]
     : ["-c:v", encoder, "-preset", "veryfast", "-crf", "23"];
@@ -212,6 +220,7 @@ async function encode(options: BurnSubtitleOptions, encoder: "h264_nvenc" | "lib
     "-progress", "pipe:2", "-nostats", options.outputVideo,
   ], {
     signal: options.signal,
+    cwd: subtitleDir,
     onStderr(value) {
       buffered += value;
       const matches = [...buffered.matchAll(/out_time_ms=(\d+)/g)];
@@ -223,7 +232,7 @@ async function encode(options: BurnSubtitleOptions, encoder: "h264_nvenc" | "lib
 }
 
 export function buildSubtitleFilter(subtitleFile: string, style?: SubtitleStyle) {
-  return `subtitles='${escapeSubtitlePath(subtitleFile)}'${styleFilter(style)}`;
+  return `subtitles=filename='${escapeSubtitleFilename(subtitleFile)}'${styleFilter(style)}`;
 }
 
 export async function replaceAudio(options: ReplaceAudioOptions): Promise<void> {

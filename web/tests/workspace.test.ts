@@ -25,9 +25,16 @@ import { LocalJobQueue } from "../lib/queue/local-queue.ts";
 import nextConfig from "../next.config.ts";
 import { buildSubtitleFilter } from "../lib/ffmpeg.ts";
 import {
+  buildSeparatedAudioMixFilter,
+  buildVoiceOnlyMixFilter,
   buildVoiceTimelineFilter,
-  getOriginalAudioMode,
 } from "../lib/dub-audio.ts";
+import {
+  buildDemucsArgs,
+  findDemucsPython,
+  getDemucsOutputPaths,
+  isSeparationManifest,
+} from "../lib/demucs.ts";
 import {
   getDefaultEdgeVoice,
   parseDubbingOptions,
@@ -39,16 +46,24 @@ test("Next.js proxy accepts the 500 MB upload pipeline", () => {
   assert.equal(nextConfig.experimental?.serverActions?.bodySizeLimit, "500mb");
 });
 
-test("subtitle filters escape Windows drive letters and quote the complete path", () => {
+test("subtitle filters avoid Windows drive-letter parsing by using only the filename", () => {
   const filter = buildSubtitleFilter("C:\\Users\\PC\\Dub Jobs\\translated.srt");
-  assert.equal(filter, ["subtitles", "='C\\:/Users/PC/Dub Jobs/translated.srt'"].join(""));
+  assert.equal(filter, "subtitles=filename='translated.srt'");
 });
 
 test("AI Dubbing delegates subtitle rendering to the shared burn pipeline", async () => {
   const route = await readFile(new URL("../app/api/dub/route.ts", import.meta.url), "utf8");
   assert.match(route, /await burnSubtitle\(\{/);
+  assert.match(route, /separationCacheDir:\s*path\.join\(root, "separation"\)/);
   assert.doesNotMatch(route, /subtitles\s*=/);
   assert.doesNotMatch(route, /spawn\(["']ffmpeg["']/);
+});
+
+test("shared subtitle rendering runs FFmpeg from the subtitle directory", async () => {
+  const source = await readFile(new URL("../lib/ffmpeg.ts", import.meta.url), "utf8");
+  assert.match(source, /const subtitleDir = path\.dirname\(path\.resolve\(options\.subtitleFile\)\)/);
+  assert.match(source, /cwd: subtitleDir/);
+  assert.doesNotMatch(source, /replace\(\/:\/g, "\\\\:"\)/);
 });
 
 test("AI Dubbing selects sensible Edge voices by translated language", () => {
@@ -60,11 +75,18 @@ test("AI Dubbing selects sensible Edge voices by translated language", () => {
 });
 
 test("AI Dubbing accepts only the Edge TTS provider", () => {
-  assert.equal(parseDubbingOptions({ provider: "edge", language: "vi" }).provider, "edge");
+  const options = parseDubbingOptions({ provider: "edge", language: "vi" });
+  assert.equal(options.provider, "edge");
+  assert.equal(options.mode, "replace-vocals");
+  assert.equal(options.voiceVolume, 1);
+  assert.equal(options.backgroundVolume, 1);
   assert.throws(
     () => parseDubbingOptions({ provider: "kokoro", language: "vi" }),
     /supports only edge/i,
   );
+  assert.throws(() => parseDubbingOptions({ mode: "invalid" }), /replace-vocals or replace-all/i);
+  assert.throws(() => parseDubbingOptions({ voiceVolume: 2.1 }), /voiceVolume/i);
+  assert.throws(() => parseDubbingOptions({ backgroundVolume: -0.1 }), /backgroundVolume/i);
 });
 
 test("voice timeline preserves gaps with per-segment adelay filters", () => {
@@ -80,9 +102,65 @@ test("voice timeline preserves gaps with per-segment adelay filters", () => {
   assert.match(filter, /atrim=end=6/);
 });
 
-test("originalVolume zero selects a voice-only final audio track", () => {
-  assert.equal(getOriginalAudioMode(0), "voice-only");
-  assert.equal(getOriginalAudioMode(0.2), "mixed");
+test("AI Dubbing mixes the preserved background and timed voice at independent volumes", () => {
+  const filter = buildSeparatedAudioMixFilter(0.75, 1.25, 8);
+  assert.match(filter, /\[0:a\].*volume=0\.75\[background\]/);
+  assert.match(filter, /\[1:a\].*volume=1\.25\[ai\]/);
+  assert.match(filter, /\[background\]\[ai\]amix=inputs=2/);
+  assert.match(filter, /alimiter=limit=0\.95/);
+  assert.match(filter, /atrim=end=8\[mixed\]/);
+});
+
+test("Replace Entire Audio fallback uses only the AI voice input", () => {
+  const filter = buildVoiceOnlyMixFilter(1, 8);
+  assert.match(filter, /^\[0:a\]/);
+  assert.doesNotMatch(filter, /\[1:a\]|background/);
+  assert.match(filter, /volume=1/);
+});
+
+test("Demucs runs two-stem vocal separation and locates both output stems", () => {
+  const args = buildDemucsArgs("C:\\source audio.wav", "C:\\project\\separation-work", "htdemucs");
+  assert.deepEqual(args.slice(0, 7), [
+    "-m", "demucs", "--two-stems", "vocals", "--name", "htdemucs", "--out",
+  ]);
+  assert.equal(args.at(-1), "C:\\source audio.wav");
+
+  const output = getDemucsOutputPaths("out", "htdemucs", "source.wav");
+  assert.equal(output.vocalsPath, path.join("out", "htdemucs", "source", "vocals.wav"));
+  assert.equal(output.accompanimentPath, path.join("out", "htdemucs", "source", "no_vocals.wav"));
+});
+
+test("separated-audio cache is invalidated when the source or model changes", () => {
+  const manifest = {
+    version: 1,
+    sourceSha256: "source-a",
+    model: "htdemucs",
+    vocalsFile: "vocals.wav",
+    accompanimentFile: "accompaniment.wav",
+    createdAt: "2026-07-17T00:00:00.000Z",
+  };
+  assert.equal(isSeparationManifest(manifest, "source-a", "htdemucs"), true);
+  assert.equal(isSeparationManifest(manifest, "source-b", "htdemucs"), false);
+  assert.equal(isSeparationManifest(manifest, "source-a", "htdemucs_ft"), false);
+});
+
+test("missing Demucs reports the installation command", async () => {
+  await assert.rejects(
+    () => findDemucsPython(
+      async () => "module-missing",
+      [{ command: "python", prefixArgs: [], displayName: "python" }],
+    ),
+    /python -m pip install demucs/i,
+  );
+});
+
+test("AI Dubbing exposes an explicit Demucs fallback without silently changing modes", async () => {
+  const panel = await readFile(new URL("../app/components/AIDubbing.tsx", import.meta.url), "utf8");
+  assert.match(panel, /Replace Voice Only is disabled/);
+  assert.match(panel, /Replace Entire Audio/);
+  assert.match(panel, /disabled=\{demucsStatus !== "available"\}/);
+  assert.match(panel, /aria-label="AI voice volume"/);
+  assert.match(panel, /aria-label="Background volume"/);
 });
 
 test("missing Edge TTS reports the installation command", async () => {

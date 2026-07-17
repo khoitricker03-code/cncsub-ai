@@ -2,7 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { EDGE_VOICES, getDefaultEdgeVoice } from "@/lib/tts-config";
+import {
+  EDGE_VOICES,
+  getDefaultEdgeVoice,
+  type DubbingMode,
+} from "@/lib/tts-config";
 
 type Props = {
   projectId: string;
@@ -20,6 +24,15 @@ type JobResponse = {
   error?: string | null;
 };
 
+type DemucsStatus = "checking" | "available" | "unavailable";
+
+type CapabilitiesResponse = {
+  demucs?: {
+    available?: boolean;
+    message?: string;
+  };
+};
+
 export default function AIDubbing({
   projectId,
   language,
@@ -34,12 +47,45 @@ export default function AIDubbing({
   const [voice, setVoice] = useState(() => getDefaultEdgeVoice(language));
   const [rate, setRate] = useState(0);
   const [pitch, setPitch] = useState(0);
-  const [originalVolume, setOriginalVolume] = useState(0);
+  const [mode, setMode] = useState<DubbingMode>("replace-vocals");
+  const [voiceVolume, setVoiceVolume] = useState(1);
+  const [backgroundVolume, setBackgroundVolume] = useState(1);
+  const [demucsStatus, setDemucsStatus] = useState<DemucsStatus>("checking");
+  const [demucsMessage, setDemucsMessage] = useState("Checking Demucs availability...");
   const [hasDubbed, setHasDubbed] = useState(false);
   const jobRef = useRef<string | null>(null);
   const pollControllerRef = useRef<AbortController | null>(null);
 
-  useEffect(() => () => pollControllerRef.current?.abort(), []);
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const loadCapabilities = async () => {
+      try {
+        const response = await fetch("/api/dub/capabilities", { signal: controller.signal });
+        const capabilities = await response.json() as CapabilitiesResponse;
+        const available = response.ok && capabilities.demucs?.available === true;
+        setDemucsStatus(available ? "available" : "unavailable");
+        setDemucsMessage(
+          capabilities.demucs?.message
+            ?? (available
+              ? "Demucs is ready to preserve music and sound effects."
+              : "Demucs is unavailable. Install it with: python -m pip install demucs"),
+        );
+        if (!available) setMode("replace-all");
+      } catch (capabilitiesError) {
+        if (capabilitiesError instanceof DOMException && capabilitiesError.name === "AbortError") return;
+        setDemucsStatus("unavailable");
+        setDemucsMessage("Demucs is unavailable. Install it with: python -m pip install demucs");
+        setMode("replace-all");
+      }
+    };
+
+    void loadCapabilities();
+    return () => {
+      controller.abort();
+      pollControllerRef.current?.abort();
+    };
+  }, []);
 
   const stopPolling = () => {
     pollControllerRef.current?.abort();
@@ -50,7 +96,7 @@ export default function AIDubbing({
     setLoading(true);
     setError("");
     setProgress(0);
-    setPhase("Preparing Edge TTS");
+    setPhase(mode === "replace-vocals" ? "Preparing vocal separation" : "Preparing Edge TTS");
     stopPolling();
     const pollController = new AbortController();
     pollControllerRef.current = pollController;
@@ -63,7 +109,9 @@ export default function AIDubbing({
       form.append("rate", String(rate));
       form.append("pitch", String(pitch));
       form.append("language", language || "en");
-      form.append("originalVolume", String(originalVolume));
+      form.append("mode", mode);
+      form.append("voiceVolume", String(voiceVolume));
+      form.append("backgroundVolume", String(backgroundVolume));
 
       const response = await fetch("/api/dub", { method: "POST", body: form });
       const created = await response.json() as { jobId?: string; error?: string };
@@ -146,9 +194,39 @@ export default function AIDubbing({
       <div>
         <h3 className="font-semibold">AI Dubbing</h3>
         <p className="text-sm text-gray-400">
-          Edge TTS speaks the saved translation. Original audio is muted by default.
+          Demucs removes the original dialogue while keeping music and sound effects. Edge TTS then speaks the saved translation.
         </p>
       </div>
+
+      <label className="block text-sm text-gray-300">
+        Dubbing mode
+        <select
+          aria-label="Dubbing mode"
+          value={mode}
+          onChange={(event) => setMode(event.target.value as DubbingMode)}
+          disabled={loading || demucsStatus === "checking"}
+          className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-white"
+        >
+          <option value="replace-vocals" disabled={demucsStatus !== "available"}>
+            Replace Voice Only — preserve music &amp; SFX
+          </option>
+          <option value="replace-all">Replace Entire Audio — AI voice only</option>
+        </select>
+      </label>
+
+      {demucsStatus === "checking" && (
+        <p className="text-sm text-gray-400" role="status">{demucsMessage}</p>
+      )}
+      {demucsStatus === "available" && (
+        <p className="text-sm text-emerald-400">{demucsMessage}</p>
+      )}
+      {demucsStatus === "unavailable" && (
+        <div className="rounded-lg border border-amber-700 bg-amber-950/40 p-3 text-sm text-amber-200" role="alert">
+          <p className="font-semibold">Replace Voice Only is disabled.</p>
+          <p>{demucsMessage}</p>
+          <p>You can still use Replace Entire Audio, which removes all original audio.</p>
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2">
         <label className="text-sm text-gray-300">
@@ -167,16 +245,31 @@ export default function AIDubbing({
         </label>
 
         <label className="text-sm text-gray-300">
-          Original audio volume: {Math.round(originalVolume * 100)}%
+          AI voice volume: {Math.round(voiceVolume * 100)}%
           <input
-            aria-label="Original audio volume"
+            aria-label="AI voice volume"
             type="range"
             min={0}
-            max={1}
+            max={2}
             step={0.05}
-            value={originalVolume}
-            onChange={(event) => setOriginalVolume(Number(event.target.value))}
+            value={voiceVolume}
+            onChange={(event) => setVoiceVolume(Number(event.target.value))}
             disabled={loading}
+            className="mt-2 w-full"
+          />
+        </label>
+
+        <label className="text-sm text-gray-300">
+          Background volume: {Math.round(backgroundVolume * 100)}%
+          <input
+            aria-label="Background volume"
+            type="range"
+            min={0}
+            max={2}
+            step={0.05}
+            value={backgroundVolume}
+            onChange={(event) => setBackgroundVolume(Number(event.target.value))}
+            disabled={loading || mode === "replace-all"}
             className="mt-2 w-full"
           />
         </label>
@@ -216,7 +309,7 @@ export default function AIDubbing({
         <button
           type="button"
           onClick={() => void start()}
-          disabled={loading}
+          disabled={loading || demucsStatus === "checking"}
           className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50"
         >
           {loading ? "Generating dubbed video…" : "Start AI Dubbing"}

@@ -3,6 +3,7 @@ import path from "path";
 import { NextResponse } from "next/server";
 
 import { runDubbingJob } from "@/lib/dub";
+import { getDemucsHealth } from "@/lib/demucs";
 import { burnSubtitle, replaceAudio } from "@/lib/ffmpeg";
 import { logger } from "@/lib/logger";
 import { authorizeProject } from "@/lib/services/access-service";
@@ -99,13 +100,29 @@ export async function POST(request: Request) {
         rate: formValue(form, "rate"),
         pitch: formValue(form, "pitch"),
         language: formValue(form, "language") ?? workspace.translationLanguage ?? "en",
-        originalVolume: formValue(form, "originalVolume"),
+        mode: formValue(form, "mode"),
+        voiceVolume: formValue(form, "voiceVolume"),
+        backgroundVolume: formValue(form, "backgroundVolume"),
       });
     } catch (error) {
       return NextResponse.json(
         { success: false, error: error instanceof Error ? error.message : String(error) },
         { status: 400 },
       );
+    }
+
+    if (options.mode === "replace-vocals") {
+      const demucs = await getDemucsHealth();
+      if (!demucs.ok) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `${demucs.message} Replace Voice Only is unavailable. Choose Replace Entire Audio to continue.`,
+            fallbackMode: "replace-all",
+          },
+          { status: 503 },
+        );
+      }
     }
 
     const controller = new AbortController();
@@ -136,7 +153,11 @@ export async function POST(request: Request) {
           originalVideo,
           translatedSegments,
           workDir,
-          { ...options, signal: controller.signal },
+          {
+            ...options,
+            separationCacheDir: path.join(root, "separation"),
+            signal: controller.signal,
+          },
           update,
         );
 
