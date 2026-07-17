@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 
 import { getProjectVideoPath, loadProjectWorkspace, saveVoiceFile, saveMixedFile, saveFinalVideo, getProjectRoot } from "@/lib/storage";
 import { runDubbingJob } from "@/lib/dub";
+import { burnSubtitle } from "@/lib/ffmpeg";
 import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
   // Use translated segments if present, otherwise fallback to segments
   const segments = (workspace.translatedSegments && workspace.translatedSegments.length > 0) ? workspace.translatedSegments : workspace.segments;
 
-  type Segment = { id: string; start: number; end: number; text: string };
+  type Segment = { id: number; start: number; end: number; text: string };
 
   const jobId = `dub-job-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   (global as unknown as { __dubJobs?: Map<string, DubJob> }).__dubJobs = (global as unknown as { __dubJobs?: Map<string, DubJob> }).__dubJobs || new Map();
@@ -39,40 +40,68 @@ export async function POST(request: Request) {
     try {
       jobMap.set(jobId, { status: "running", progress: 5, phase: "preparing", error: null });
 
-      const segs: Segment[] = segments.map((s: any) => ({ id: s.id, start: s.start, end: s.end, text: s.text }));
+      const segs: Segment[] = segments.map((segment, index) => ({
+        id: typeof segment.id === "number" ? segment.id : index + 1,
+        start: segment.start,
+        end: segment.end,
+        text: segment.text,
+      }));
 
       const update = (phase: string, pct: number) => jobMap.set(jobId, { status: "running", progress: pct, phase, error: null });
 
       const { voicePath, mixedPath } = await runDubbingJob(projectId, segs, workDir, { provider: String(form.get("provider") ?? "edge") }, (phase: string, pct: number) => update(phase, pct));
 
       // persist
-      const savedVoice = await saveVoiceFile(projectId, voicePath);
-      const savedMixed = await saveMixedFile(projectId, mixedPath);
+      await saveVoiceFile(projectId, voicePath);
+      await saveMixedFile(projectId, mixedPath);
 
       jobMap.set(jobId, { status: "running", progress: 90, phase: "rendering", error: null });
 
-      // Burn subtitles then replace audio: reuse existing burn pipeline by calling ffmpeg directly
-      const originalVideo = (await getProjectVideoPath(projectId))!;
-      const burned = path.join(workDir, "burned.mp4");
-      // Burn subtitles using ffmpeg filter (assumes translated.srt exists in transcript)
-      const srtPath = path.join(getProjectRoot(projectId) || "", "transcript", "translated.srt");
+      // Replace the original audio first, then burn subtitles through the single shared
+      // FFmpeg subtitle renderer. This avoids duplicated Windows path handling.
+      const originalVideo = await getProjectVideoPath(projectId);
+      if (!originalVideo) {
+        throw new Error("Project video not found.");
+      }
 
+      const audioReplaced = path.join(workDir, "audio-replaced.mp4");
       await new Promise<void>((resolve, reject) => {
-        const args = ["-y", "-i", originalVideo, "-vf", `subtitles=${srtPath.replace(/\\/g, "\\\\")}`, "-c:v", "libx264", "-c:a", "aac", "-strict", "-2", burned];
-        const p = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
+        const args = [
+          "-y",
+          "-i",
+          originalVideo,
+          "-i",
+          mixedPath,
+          "-map",
+          "0:v:0",
+          "-map",
+          "1:a:0",
+          "-c:v",
+          "copy",
+          "-c:a",
+          "aac",
+          "-shortest",
+          audioReplaced,
+        ];
+        const process = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
         let stderr = "";
-        p.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
-        p.on("close", (code: number) => (code === 0 ? resolve() : reject(new Error(`ffmpeg burn failed: ${stderr}`))));
+        process.stderr.on("data", (chunk: Buffer) => {
+          stderr += chunk.toString();
+        });
+        process.on("error", reject);
+        process.on("close", (code: number) => {
+          if (code === 0) resolve();
+          else reject(new Error(`ffmpeg replace audio failed: ${stderr}`));
+        });
       });
 
-      // Replace audio with mixed
+      const srtPath = path.join(getProjectRoot(projectId) ?? "", "transcript", "translated.srt");
       const final = path.join(workDir, "final.mp4");
-      await new Promise<void>((resolve, reject) => {
-        const args = ["-y", "-i", burned, "-i", mixedPath, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-shortest", final];
-        const p = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
-        let stderr = "";
-        p.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
-        p.on("close", (code: number) => (code === 0 ? resolve() : reject(new Error(`ffmpeg replace audio failed: ${stderr}`))));
+      await burnSubtitle({
+        inputVideo: audioReplaced,
+        subtitleFile: srtPath,
+        outputVideo: final,
+        hardwareAcceleration: "auto",
       });
 
       await saveFinalVideo(projectId, final);

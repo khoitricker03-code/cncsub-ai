@@ -42,10 +42,10 @@ async function ensureFile(file: string) {
 function runProcess(
   command: string,
   args: string[],
-  options: { signal?: AbortSignal; onStderr?: (value: string) => void } = {},
+  options: { signal?: AbortSignal; onStderr?: (value: string) => void; cwd?: string } = {},
 ): Promise<ProcessResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { windowsHide: true });
+    const child = spawn(command, args, { windowsHide: true, cwd: options.cwd });
     let stdout = "";
     let stderr = "";
     const abort = () => child.kill("SIGTERM");
@@ -113,8 +113,8 @@ export async function hasNvenc() {
   }
 }
 
-function escapeSubtitlePath(file: string) {
-  return path.resolve(file).replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
+function escapeSubtitleFilename(file: string) {
+  return path.basename(file).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
 function styleFilter(style?: SubtitleStyle) {
@@ -133,7 +133,9 @@ function styleFilter(style?: SubtitleStyle) {
 }
 
 async function encode(options: BurnSubtitleOptions, encoder: "h264_nvenc" | "libx264", duration: number) {
-  const filter = `subtitles='${escapeSubtitlePath(options.subtitleFile)}'${styleFilter(options.style)}`;
+  const subtitleDir = path.dirname(path.resolve(options.subtitleFile));
+  const subtitleFilename = escapeSubtitleFilename(options.subtitleFile);
+  const filter = `subtitles=filename='${subtitleFilename}'${styleFilter(options.style)}`;
   const codecArgs = encoder === "h264_nvenc"
     ? ["-c:v", encoder, "-preset", "p4", "-cq", "23"]
     : ["-c:v", encoder, "-preset", "veryfast", "-crf", "23"];
@@ -144,6 +146,7 @@ async function encode(options: BurnSubtitleOptions, encoder: "h264_nvenc" | "lib
     "-progress", "pipe:2", "-nostats", options.outputVideo,
   ], {
     signal: options.signal,
+    cwd: subtitleDir,
     onStderr(value) {
       buffered += value;
       const matches = [...buffered.matchAll(/out_time_ms=(\d+)/g)];
