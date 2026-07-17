@@ -174,16 +174,30 @@ export default function AIDubbing({
   const download = async () => {
     setError("");
     try {
-      const response = await fetch(`/api/projects/${projectId}/video?rendered=true&revision=${Date.now()}`);
-      if (!response.ok) throw new Error("Dubbed MP4 is not available.");
-      const url = URL.createObjectURL(await response.blob());
+      const response = await fetch(`/api/projects/${projectId}/video?rendered=true`, {
+        cache: "no-store",
+        headers: { Accept: "video/mp4" },
+      });
+      if (!response.ok) {
+        const responseText = (await response.text()).trim();
+        throw new Error(
+          responseText || `MP4 download failed (HTTP ${response.status} ${response.statusText}).`,
+        );
+      }
+
+      const blob = await response.blob();
+      if (blob.size === 0) {
+        throw new Error("The rendered MP4 response was empty.");
+      }
+
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
       link.download = "dubbed.mp4";
       document.body.appendChild(link);
       link.click();
       link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (downloadError) {
       setError(downloadError instanceof Error ? downloadError.message : String(downloadError));
     }

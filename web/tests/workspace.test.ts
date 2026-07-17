@@ -298,6 +298,20 @@ test("AI Dubbing exposes an explicit Demucs fallback without silently changing m
   assert.match(panel, /aria-label="Background volume"/);
 });
 
+test("AI Dubbing downloads the rendered MP4 through a temporary Blob URL", async () => {
+  const panel = await readFile(new URL("../app/components/AIDubbing.tsx", import.meta.url), "utf8");
+  const handler = panel.match(/const download = async \(\) => \{[\s\S]*?\n  \};/);
+  assert.ok(handler);
+  assert.match(handler[0], /video\?rendered=true/);
+  assert.match(handler[0], /await response\.blob\(\)/);
+  assert.match(handler[0], /URL\.createObjectURL\(blob\)/);
+  assert.match(handler[0], /link\.download = "dubbed\.mp4"/);
+  assert.match(handler[0], /link\.click\(\)/);
+  assert.match(handler[0], /URL\.revokeObjectURL\(url\)/);
+  assert.match(handler[0], /await response\.text\(\)/);
+  assert.doesNotMatch(handler[0], /response\.json\(\)/);
+});
+
 test("missing Edge TTS reports the installation command", async () => {
   await assert.rejects(
     () => findEdgeTtsPython(
