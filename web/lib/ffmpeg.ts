@@ -11,6 +11,13 @@ export type VideoMetadata = {
   audioCodec: string | null;
 };
 
+export type AudioMetadata = {
+  duration: number;
+  codec: string;
+  sampleRate: number;
+  channels: number;
+};
+
 export type SubtitleStyle = {
   fontFamily?: string;
   fontSize?: number;
@@ -33,6 +40,13 @@ export type BurnSubtitleOptions = {
   onProgress?: (percent: number) => void;
 };
 
+export type ReplaceAudioOptions = {
+  inputVideo: string;
+  audioFile: string;
+  outputVideo: string;
+  signal?: AbortSignal;
+};
+
 type ProcessResult = { stdout: string; stderr: string };
 
 async function ensureFile(file: string) {
@@ -42,13 +56,24 @@ async function ensureFile(file: string) {
 function runProcess(
   command: string,
   args: string[],
-  options: { signal?: AbortSignal; onStderr?: (value: string) => void; cwd?: string } = {},
+  options: { signal?: AbortSignal; onStderr?: (value: string) => void } = {},
 ): Promise<ProcessResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { windowsHide: true, cwd: options.cwd });
+    if (options.signal?.aborted) {
+      reject(new DOMException("Operation cancelled", "AbortError"));
+      return;
+    }
+    const child = spawn(command, args, { windowsHide: true });
     let stdout = "";
     let stderr = "";
+    let settled = false;
     const abort = () => child.kill("SIGTERM");
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      options.signal?.removeEventListener("abort", abort);
+      reject(error);
+    };
     options.signal?.addEventListener("abort", abort, { once: true });
     child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
     child.stderr.on("data", (chunk) => {
@@ -56,14 +81,28 @@ function runProcess(
       stderr += value;
       options.onStderr?.(value);
     });
-    child.on("error", reject);
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      const message = error.code === "ENOENT"
+        ? `${command} was not found on PATH. Install ${command} and restart CNCSub AI.`
+        : `Unable to start ${command}: ${error.message}`;
+      fail(new Error(message));
+    });
     child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
       options.signal?.removeEventListener("abort", abort);
       if (options.signal?.aborted) reject(new DOMException("Operation cancelled", "AbortError"));
       else if (code === 0) resolve({ stdout, stderr });
       else reject(new Error(stderr || `${command} exited with code ${code}`));
     });
   });
+}
+
+export function runFfmpeg(
+  args: string[],
+  options: { signal?: AbortSignal; onStderr?: (value: string) => void } = {},
+) {
+  return runProcess("ffmpeg", args, options);
 }
 
 function parseRate(value?: string) {
@@ -94,6 +133,35 @@ export async function probeVideo(inputVideo: string): Promise<VideoMetadata> {
   };
 }
 
+export async function probeAudio(inputAudio: string): Promise<AudioMetadata> {
+  await ensureFile(inputAudio);
+  const { stdout } = await runProcess("ffprobe", [
+    "-v", "error", "-show_streams", "-show_format", "-of", "json", inputAudio,
+  ]);
+  const value = JSON.parse(stdout) as {
+    streams?: Array<Record<string, string | number>>;
+    format?: { duration?: string };
+  };
+  const audio = value.streams?.find((stream) => stream.codec_type === "audio");
+  if (!audio) throw new Error("Audio stream not found.");
+  return {
+    duration: Number(value.format?.duration ?? audio.duration ?? 0),
+    codec: String(audio.codec_name ?? "unknown"),
+    sampleRate: Number(audio.sample_rate ?? 0),
+    channels: Number(audio.channels ?? 0),
+  };
+}
+
+export async function analyzeAudioVolume(inputAudio: string) {
+  await ensureFile(inputAudio);
+  const { stderr } = await runFfmpeg([
+    "-hide_banner", "-i", inputAudio, "-af", "volumedetect", "-f", "null", "-",
+  ]);
+  const match = /max_volume:\s*(-?\d+(?:\.\d+)?|-inf)\s*dB/i.exec(stderr);
+  if (!match) throw new Error("FFmpeg could not measure the generated speech volume.");
+  return { maxVolumeDb: match[1].toLowerCase() === "-inf" ? Number.NEGATIVE_INFINITY : Number(match[1]) };
+}
+
 export async function generateThumbnail(inputVideo: string, output: string, time = 0) {
   await ensureFile(inputVideo);
   await runProcess("ffmpeg", ["-y", "-ss", String(Math.max(0, time)), "-i", inputVideo, "-frames:v", "1", "-q:v", "2", output]);
@@ -113,8 +181,8 @@ export async function hasNvenc() {
   }
 }
 
-function escapeSubtitleFilename(file: string) {
-  return path.basename(file).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+export function escapeSubtitlePath(file: string) {
+  return path.resolve(file).replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
 }
 
 function styleFilter(style?: SubtitleStyle) {
@@ -133,9 +201,7 @@ function styleFilter(style?: SubtitleStyle) {
 }
 
 async function encode(options: BurnSubtitleOptions, encoder: "h264_nvenc" | "libx264", duration: number) {
-  const subtitleDir = path.dirname(path.resolve(options.subtitleFile));
-  const subtitleFilename = escapeSubtitleFilename(options.subtitleFile);
-  const filter = `subtitles=filename='${subtitleFilename}'${styleFilter(options.style)}`;
+  const filter = buildSubtitleFilter(options.subtitleFile, options.style);
   const codecArgs = encoder === "h264_nvenc"
     ? ["-c:v", encoder, "-preset", "p4", "-cq", "23"]
     : ["-c:v", encoder, "-preset", "veryfast", "-crf", "23"];
@@ -146,7 +212,6 @@ async function encode(options: BurnSubtitleOptions, encoder: "h264_nvenc" | "lib
     "-progress", "pipe:2", "-nostats", options.outputVideo,
   ], {
     signal: options.signal,
-    cwd: subtitleDir,
     onStderr(value) {
       buffered += value;
       const matches = [...buffered.matchAll(/out_time_ms=(\d+)/g)];
@@ -155,6 +220,27 @@ async function encode(options: BurnSubtitleOptions, encoder: "h264_nvenc" | "lib
       if (buffered.length > 20_000) buffered = buffered.slice(-5_000);
     },
   });
+}
+
+export function buildSubtitleFilter(subtitleFile: string, style?: SubtitleStyle) {
+  return `subtitles='${escapeSubtitlePath(subtitleFile)}'${styleFilter(style)}`;
+}
+
+export async function replaceAudio(options: ReplaceAudioOptions): Promise<void> {
+  await Promise.all([ensureFile(options.inputVideo), ensureFile(options.audioFile)]);
+  await runProcess("ffmpeg", [
+    "-y",
+    "-i", options.inputVideo,
+    "-i", options.audioFile,
+    "-map", "0:v:0",
+    "-map", "1:a:0",
+    "-c:v", "copy",
+    "-c:a", "aac",
+    "-b:a", "192k",
+    "-shortest",
+    "-movflags", "+faststart",
+    options.outputVideo,
+  ], { signal: options.signal });
 }
 
 export async function burnSubtitle(options: BurnSubtitleOptions): Promise<void> {

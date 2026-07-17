@@ -1,134 +1,243 @@
 import { promises as fs } from "fs";
 import path from "path";
-import os from "os";
-import { spawn } from "child_process";
 import { NextResponse } from "next/server";
 
-import { getProjectVideoPath, loadProjectWorkspace, saveVoiceFile, saveMixedFile, saveFinalVideo, getProjectRoot } from "@/lib/storage";
 import { runDubbingJob } from "@/lib/dub";
-import { burnSubtitle } from "@/lib/ffmpeg";
+import { burnSubtitle, replaceAudio } from "@/lib/ffmpeg";
 import { logger } from "@/lib/logger";
+import { authorizeProject } from "@/lib/services/access-service";
+import {
+  getProjectRoot,
+  getProjectVideoPath,
+  loadProjectWorkspace,
+  saveMixedFile,
+  saveRenderedVideo,
+  saveVoiceFile,
+} from "@/lib/storage";
+import { parseDubbingOptions } from "@/lib/tts-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type DubJob = { status: string; progress: number; phase?: string; error?: string | null };
+type DubJobStatus = "running" | "completed" | "failed" | "cancelled";
+
+type DubJob = {
+  status: DubJobStatus;
+  progress: number;
+  phase: string;
+  error: string | null;
+  controller: AbortController;
+};
+
+type DubJobStore = { __dubJobs?: Map<string, DubJob> };
+
+function getJobStore() {
+  const store = global as unknown as DubJobStore;
+  store.__dubJobs ??= new Map();
+  return store.__dubJobs;
+}
+
+function formValue(form: FormData, name: string) {
+  const value = form.get(name);
+  return typeof value === "string" ? value : undefined;
+}
+
+function publicJob(job: DubJob) {
+  return {
+    status: job.status,
+    progress: job.progress,
+    phase: job.phase,
+    error: job.error,
+  };
+}
 
 export async function POST(request: Request) {
-  const form = await request.formData();
-  const projectId = typeof form.get("projectId") === "string" ? String(form.get("projectId")) : null;
-  if (!projectId) return NextResponse.json({ success: false, error: "Missing projectId" }, { status: 400 });
-
-  const workspace = await loadProjectWorkspace(projectId);
-  if (!workspace) return NextResponse.json({ success: false, error: "Project not found" }, { status: 404 });
-
-  // Use translated segments if present, otherwise fallback to segments
-  const segments = (workspace.translatedSegments && workspace.translatedSegments.length > 0) ? workspace.translatedSegments : workspace.segments;
-
-  type Segment = { id: number; start: number; end: number; text: string };
-
-  const jobId = `dub-job-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  (global as unknown as { __dubJobs?: Map<string, DubJob> }).__dubJobs = (global as unknown as { __dubJobs?: Map<string, DubJob> }).__dubJobs || new Map();
-  const jobMap: Map<string, DubJob> = (global as unknown as { __dubJobs: Map<string, DubJob> }).__dubJobs;
-  jobMap.set(jobId, { status: "running", progress: 0, phase: "queued", error: null });
-
-  // Create working directory inside project's render folder
-  const workDir = path.join(getProjectRoot(projectId) || os.tmpdir(), "render", `dub-${Date.now()}`);
-  await fs.mkdir(workDir, { recursive: true });
-
-  (async () => {
-    try {
-      jobMap.set(jobId, { status: "running", progress: 5, phase: "preparing", error: null });
-
-      const segs: Segment[] = segments.map((segment, index) => ({
-        id: typeof segment.id === "number" ? segment.id : index + 1,
-        start: segment.start,
-        end: segment.end,
-        text: segment.text,
-      }));
-
-      const update = (phase: string, pct: number) => jobMap.set(jobId, { status: "running", progress: pct, phase, error: null });
-
-      const { voicePath, mixedPath } = await runDubbingJob(projectId, segs, workDir, { provider: String(form.get("provider") ?? "edge") }, (phase: string, pct: number) => update(phase, pct));
-
-      // persist
-      await saveVoiceFile(projectId, voicePath);
-      await saveMixedFile(projectId, mixedPath);
-
-      jobMap.set(jobId, { status: "running", progress: 90, phase: "rendering", error: null });
-
-      // Replace the original audio first, then burn subtitles through the single shared
-      // FFmpeg subtitle renderer. This avoids duplicated Windows path handling.
-      const originalVideo = await getProjectVideoPath(projectId);
-      if (!originalVideo) {
-        throw new Error("Project video not found.");
-      }
-
-      const audioReplaced = path.join(workDir, "audio-replaced.mp4");
-      await new Promise<void>((resolve, reject) => {
-        const args = [
-          "-y",
-          "-i",
-          originalVideo,
-          "-i",
-          mixedPath,
-          "-map",
-          "0:v:0",
-          "-map",
-          "1:a:0",
-          "-c:v",
-          "copy",
-          "-c:a",
-          "aac",
-          "-shortest",
-          audioReplaced,
-        ];
-        const process = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
-        let stderr = "";
-        process.stderr.on("data", (chunk: Buffer) => {
-          stderr += chunk.toString();
-        });
-        process.on("error", reject);
-        process.on("close", (code: number) => {
-          if (code === 0) resolve();
-          else reject(new Error(`ffmpeg replace audio failed: ${stderr}`));
-        });
-      });
-
-      const srtPath = path.join(getProjectRoot(projectId) ?? "", "transcript", "translated.srt");
-      const final = path.join(workDir, "final.mp4");
-      await burnSubtitle({
-        inputVideo: audioReplaced,
-        subtitleFile: srtPath,
-        outputVideo: final,
-        hardwareAcceleration: "auto",
-      });
-
-      await saveFinalVideo(projectId, final);
-
-      jobMap.set(jobId, { status: "completed", progress: 100, phase: "completed", error: null });
-    } catch (err) {
-      logger.error("dub.job_failed", err);
-      const entry = jobMap.get(jobId);
-      jobMap.set(jobId, { status: "failed", progress: entry?.progress ?? 0, phase: "error", error: err instanceof Error ? err.message : String(err) });
-    } finally {
-      // keep workDir for debugging; do not delete immediately
+  try {
+    const form = await request.formData();
+    const projectId = formValue(form, "projectId") ?? null;
+    if (!projectId) {
+      return NextResponse.json({ success: false, error: "Missing projectId" }, { status: 400 });
     }
-  })();
+    if (!(await authorizeProject(projectId))) {
+      return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
+    }
 
-  return NextResponse.json({ success: true, jobId });
+    const [workspace, originalVideo] = await Promise.all([
+      loadProjectWorkspace(projectId),
+      getProjectVideoPath(projectId),
+    ]);
+    if (!workspace) {
+      return NextResponse.json({ success: false, error: "Project not found" }, { status: 404 });
+    }
+    const translatedSegments = workspace.translatedSegments;
+    if (!translatedSegments?.length) {
+      return NextResponse.json(
+        { success: false, error: "Translate and save subtitles before starting AI Dubbing." },
+        { status: 409 },
+      );
+    }
+
+    const root = getProjectRoot(projectId);
+    if (!root || !originalVideo) {
+      return NextResponse.json({ success: false, error: "Project video not found" }, { status: 404 });
+    }
+    const subtitleFile = path.join(root, "transcript", "translated.srt");
+    try {
+      await fs.access(subtitleFile);
+    } catch {
+      return NextResponse.json(
+        { success: false, error: "Translated subtitle file not found" },
+        { status: 409 },
+      );
+    }
+
+    let options;
+    try {
+      options = parseDubbingOptions({
+        provider: formValue(form, "provider"),
+        voice: formValue(form, "voice"),
+        rate: formValue(form, "rate"),
+        pitch: formValue(form, "pitch"),
+        language: formValue(form, "language") ?? workspace.translationLanguage ?? "en",
+        originalVolume: formValue(form, "originalVolume"),
+      });
+    } catch (error) {
+      return NextResponse.json(
+        { success: false, error: error instanceof Error ? error.message : String(error) },
+        { status: 400 },
+      );
+    }
+
+    const controller = new AbortController();
+    const jobId = `dub-job-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const jobMap = getJobStore();
+    jobMap.set(jobId, {
+      status: "running",
+      progress: 0,
+      phase: "queued",
+      error: null,
+      controller,
+    });
+
+    const workDir = path.join(root, "render", `dub-${Date.now()}`);
+    await fs.mkdir(workDir, { recursive: true });
+
+    void (async () => {
+      const update = (phase: string, progress: number) => {
+        const current = jobMap.get(jobId);
+        if (!current || current.status !== "running" || controller.signal.aborted) return;
+        current.phase = phase;
+        current.progress = Math.max(0, Math.min(99, progress));
+      };
+
+      try {
+        update("preparing", 3);
+        const { voicePath, mixedPath } = await runDubbingJob(
+          originalVideo,
+          translatedSegments,
+          workDir,
+          { ...options, signal: controller.signal },
+          update,
+        );
+
+        await Promise.all([
+          saveVoiceFile(projectId, voicePath),
+          saveMixedFile(projectId, mixedPath),
+        ]);
+
+        update("replacing original audio", 84);
+        const mixedVideo = path.join(workDir, "mixed.mp4");
+        await replaceAudio({
+          inputVideo: originalVideo,
+          audioFile: mixedPath,
+          outputVideo: mixedVideo,
+          signal: controller.signal,
+        });
+
+        update("burning translated subtitles", 90);
+        const finalVideo = path.join(workDir, "final.mp4");
+        await burnSubtitle({
+          inputVideo: mixedVideo,
+          subtitleFile,
+          outputVideo: finalVideo,
+          hardwareAcceleration: "auto",
+          signal: controller.signal,
+          onProgress(percent) {
+            update("burning translated subtitles", 90 + Math.round(percent / 10));
+          },
+        });
+
+        await saveRenderedVideo(projectId, finalVideo);
+        jobMap.set(jobId, {
+          status: "completed",
+          progress: 100,
+          phase: "completed",
+          error: null,
+          controller,
+        });
+      } catch (error) {
+        if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+          jobMap.set(jobId, {
+            status: "cancelled",
+            progress: jobMap.get(jobId)?.progress ?? 0,
+            phase: "cancelled",
+            error: null,
+            controller,
+          });
+        } else {
+          logger.error("dub.job_failed", error);
+          jobMap.set(jobId, {
+            status: "failed",
+            progress: jobMap.get(jobId)?.progress ?? 0,
+            phase: "error",
+            error: error instanceof Error ? error.message : String(error),
+            controller,
+          });
+        }
+      } finally {
+        try {
+          await fs.rm(workDir, { recursive: true, force: true });
+        } catch (error) {
+          logger.error("dub.workdir_cleanup_failed", error);
+        }
+      }
+    })();
+
+    return NextResponse.json({ success: true, jobId });
+  } catch (error) {
+    logger.error("dub.start_failed", error);
+    return NextResponse.json(
+      { success: false, error: error instanceof Error ? error.message : String(error) },
+      { status: 500 },
+    );
+  }
 }
 
 export async function GET(request: Request) {
-  try {
-    const url = new URL(request.url);
-    const jobId = url.searchParams.get("jobId");
-    if (!jobId) return NextResponse.json({ success: false, error: "Missing jobId" }, { status: 400 });
-    const jobMap: Map<string, DubJob> = (global as unknown as { __dubJobs?: Map<string, DubJob> }).__dubJobs || new Map();
-    const entry = jobMap.get(jobId);
-    if (!entry) return NextResponse.json({ success: false, error: "Job not found" }, { status: 404 });
-    return NextResponse.json({ success: true, status: entry.status, progress: entry.progress ?? 0, phase: entry.phase ?? null, error: entry.error ?? null });
-  } catch (err) {
-    return NextResponse.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+  const jobId = new URL(request.url).searchParams.get("jobId");
+  if (!jobId) {
+    return NextResponse.json({ success: false, error: "Missing jobId" }, { status: 400 });
   }
+  const job = getJobStore().get(jobId);
+  if (!job) {
+    return NextResponse.json({ success: false, error: "Job not found" }, { status: 404 });
+  }
+  return NextResponse.json({ success: true, ...publicJob(job) });
+}
+
+export async function DELETE(request: Request) {
+  const jobId = new URL(request.url).searchParams.get("jobId");
+  if (!jobId) {
+    return NextResponse.json({ success: false, error: "Missing jobId" }, { status: 400 });
+  }
+  const job = getJobStore().get(jobId);
+  if (!job) {
+    return NextResponse.json({ success: false, error: "Job not found" }, { status: 404 });
+  }
+  if (job.status === "running") {
+    job.controller.abort();
+    job.status = "cancelled";
+    job.phase = "cancelled";
+  }
+  return NextResponse.json({ success: true, ...publicJob(job) });
 }
