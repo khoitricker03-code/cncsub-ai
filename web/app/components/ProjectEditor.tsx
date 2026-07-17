@@ -88,6 +88,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [seekVideo, setSeekVideo] = useState<(time: number) => void>(() => () => undefined);
   const [showBurned, setShowBurned] = useState(false);
+  const [renderRevision, setRenderRevision] = useState(0);
   const markSaved = useCallback(() => setIsDirty(false), []);
   const markTranslationSaved = useCallback(
     () => setIsTranslationDirty(false),
@@ -551,6 +552,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
                     const result = await resp.json();
                     if (resp.ok && result?.success) {
                       setShowBurned(true);
+                      setRenderRevision((current) => current + 1);
                       // refresh workspace data to pick up any new rendered video state
                       setData(result);
                       if (Array.isArray(result.segments)) {
@@ -577,19 +579,26 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       </section>
 
       <section className="rounded-xl border border-gray-800 bg-gray-900 p-4">
-        <h2 className="mb-3 font-semibold">AI Dubbing</h2>
-        <AIDubbing projectId={projectId} onComplete={(ok) => {
-          if (ok) {
-            setShowBurned(true);
-            (async () => {
-              try {
-                const resp = await fetch(`/api/projects/${projectId}`);
-                const result = await resp.json();
-                if (resp.ok && result?.success) setData(result);
-              } catch {}
-            })();
-          }
-        }} />
+        <AIDubbing
+          key={translationLanguage}
+          projectId={projectId}
+          language={translationLanguage}
+          showDubbed={showBurned}
+          onPreviewChange={setShowBurned}
+          onComplete={(ok) => {
+            if (ok) {
+              setShowBurned(true);
+              setRenderRevision((current) => current + 1);
+              (async () => {
+                try {
+                  const resp = await fetch(`/api/projects/${projectId}`);
+                  const result = await resp.json();
+                  if (resp.ok && result?.success) setData(result);
+                } catch {}
+              })();
+            }
+          }}
+        />
       </section>
 
       <details className="rounded-xl border border-gray-800 bg-gray-900 p-4">
@@ -642,6 +651,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         onPlayerReady={handlePlayerReady}
         onSegmentChange={updateSegment}
         useRendered={showBurned}
+        renderRevision={renderRevision}
       />
 
       {activeTrack === "both" ? (

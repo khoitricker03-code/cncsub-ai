@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -23,10 +23,82 @@ import {
 } from "../lib/segment-editor.ts";
 import { LocalJobQueue } from "../lib/queue/local-queue.ts";
 import nextConfig from "../next.config.ts";
+import { buildSubtitleFilter } from "../lib/ffmpeg.ts";
+import {
+  buildVoiceTimelineFilter,
+  getOriginalAudioMode,
+} from "../lib/dub-audio.ts";
+import {
+  getDefaultEdgeVoice,
+  parseDubbingOptions,
+} from "../lib/tts-config.ts";
+import { findEdgeTtsPython } from "../lib/tts.ts";
 
 test("Next.js proxy accepts the 500 MB upload pipeline", () => {
   assert.equal(nextConfig.experimental?.proxyClientMaxBodySize, "500mb");
   assert.equal(nextConfig.experimental?.serverActions?.bodySizeLimit, "500mb");
+});
+
+test("subtitle filters escape Windows drive letters and quote the complete path", () => {
+  const filter = buildSubtitleFilter("C:\\Users\\PC\\Dub Jobs\\translated.srt");
+  assert.equal(filter, ["subtitles", "='C\\:/Users/PC/Dub Jobs/translated.srt'"].join(""));
+});
+
+test("AI Dubbing delegates subtitle rendering to the shared burn pipeline", async () => {
+  const route = await readFile(new URL("../app/api/dub/route.ts", import.meta.url), "utf8");
+  assert.match(route, /await burnSubtitle\(\{/);
+  assert.doesNotMatch(route, /subtitles\s*=/);
+  assert.doesNotMatch(route, /spawn\(["']ffmpeg["']/);
+});
+
+test("AI Dubbing selects sensible Edge voices by translated language", () => {
+  assert.equal(getDefaultEdgeVoice("vi"), "vi-VN-HoaiMyNeural");
+  assert.equal(getDefaultEdgeVoice("en-US"), "en-US-JennyNeural");
+  assert.equal(getDefaultEdgeVoice("zh"), "zh-CN-XiaoxiaoNeural");
+  assert.equal(getDefaultEdgeVoice("ja"), "ja-JP-NanamiNeural");
+  assert.equal(getDefaultEdgeVoice("ko"), "ko-KR-SunHiNeural");
+});
+
+test("AI Dubbing accepts only the Edge TTS provider", () => {
+  assert.equal(parseDubbingOptions({ provider: "edge", language: "vi" }).provider, "edge");
+  assert.throws(
+    () => parseDubbingOptions({ provider: "kokoro", language: "vi" }),
+    /supports only edge/i,
+  );
+});
+
+test("voice timeline preserves gaps with per-segment adelay filters", () => {
+  const filter = buildVoiceTimelineFilter([
+    { id: 7, start: 1.25, end: 2.25, duration: 1.5 },
+    { id: 9, start: 4, end: 5, duration: 0.8 },
+  ], 6);
+  assert.match(filter, /adelay=1250:all=1/);
+  assert.match(filter, /adelay=4000:all=1/);
+  assert.match(filter, /atempo=1\.5/);
+  assert.match(filter, /aevalsrc=0:d=6:s=48000:c=stereo\[timeline\]/);
+  assert.match(filter, /amix=inputs=3/);
+  assert.match(filter, /atrim=end=6/);
+});
+
+test("originalVolume zero selects a voice-only final audio track", () => {
+  assert.equal(getOriginalAudioMode(0), "voice-only");
+  assert.equal(getOriginalAudioMode(0.2), "mixed");
+});
+
+test("missing Edge TTS reports the installation command", async () => {
+  await assert.rejects(
+    () => findEdgeTtsPython(
+      async () => "module-missing",
+      [{ command: "python", prefixArgs: [], displayName: "python" }],
+    ),
+    /pip install edge-tts/i,
+  );
+});
+
+test("AI Dubbing contains no silent FFmpeg TTS placeholder", async () => {
+  const source = await readFile(new URL("../lib/tts.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(source, new RegExp(["anull", "src"].join(""), "i"));
+  assert.match(source, /"-m",\s*\n\s*"edge_tts"/);
 });
 
 const segments: SubtitleSegment[] = [
