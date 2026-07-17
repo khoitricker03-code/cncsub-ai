@@ -176,7 +176,10 @@ export default function AIDubbing({
     try {
       const response = await fetch(`/api/projects/${projectId}/video?rendered=true`, {
         cache: "no-store",
-        headers: { Accept: "video/mp4" },
+        headers: {
+          Accept: "video/mp4",
+          Range: "bytes=0-",
+        },
       });
       if (!response.ok) {
         const responseText = (await response.text()).trim();
