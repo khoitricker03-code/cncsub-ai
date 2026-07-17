@@ -22,6 +22,7 @@ export type OllamaClientOptions = {
   baseURL?: string;
   model?: string;
   apiKey?: string;
+  retryDelaysMs?: readonly number[];
 };
 
 export type OllamaChatOptions = {
@@ -29,6 +30,7 @@ export type OllamaChatOptions = {
   user: string;
   temperature: number;
   signal?: AbortSignal;
+  diagnostics?: "translation";
 };
 
 function normalizeBaseURL(value: string): string {
@@ -60,6 +62,84 @@ function wait(delay: number, signal?: AbortSignal): Promise<void> {
 
 function offlineMessage(baseURL: string): string {
   return `Không kết nối được Ollama tại ${baseURL}. Hãy mở Ollama rồi thử lại.`;
+}
+
+class OllamaHttpError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OllamaHttpError";
+  }
+}
+
+function getOllamaErrorDetail(content: string): string {
+  const trimmed = content.trim();
+  if (!trimmed) return "";
+
+  let detail = trimmed;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (parsed && typeof parsed === "object") {
+      const record = parsed as Record<string, unknown>;
+      const nestedError = record.error;
+      const candidate =
+        typeof nestedError === "string"
+          ? nestedError
+          : nestedError && typeof nestedError === "object"
+            ? (nestedError as Record<string, unknown>).message
+            : record.message ?? record.detail;
+
+      if (typeof candidate === "string" && candidate.trim()) {
+        detail = candidate;
+      }
+    }
+  } catch {
+    // Plain-text Ollama errors are useful diagnostics too.
+  }
+
+  const normalized = detail.replace(/\s+/g, " ").trim();
+  return normalized.length > 1_000
+    ? `${normalized.slice(0, 1_000)}…`
+    : normalized;
+}
+
+function ollamaHttpError(status: number, content: string): OllamaHttpError {
+  const detail = getOllamaErrorDetail(content);
+  return new OllamaHttpError(
+    `Ollama trả về HTTP ${status}${detail ? `: ${detail}` : ""}.`,
+  );
+}
+
+function writeTranslationDiagnostic(
+  enabled: boolean,
+  level: "info" | "error",
+  event: string,
+  context: Record<string, unknown>,
+): void {
+  if (!enabled) return;
+
+  const output = JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level,
+    event,
+    ...context,
+  });
+
+  if (level === "error") console.error(output);
+  else console.info(output);
+}
+
+function errorDiagnostic(error: unknown): {
+  error: string;
+  stack?: string;
+} {
+  if (error instanceof Error) {
+    return {
+      error: error.message,
+      stack: error.stack,
+    };
+  }
+
+  return { error: String(error) };
 }
 
 function stripMarkdownFences(content: string): string {
@@ -117,7 +197,11 @@ function normalizeOllamaResponseContent(content: unknown): string {
   return String(content ?? "");
 }
 
-export function getLocalAIConfig(): Required<OllamaClientOptions> {
+export function getLocalAIConfig(): {
+  baseURL: string;
+  model: string;
+  apiKey: string;
+} {
   return {
     baseURL: normalizeBaseURL(
       process.env.LOCAL_BASE_URL || DEFAULT_BASE_URL,
@@ -146,12 +230,14 @@ export class OllamaClient {
   readonly baseURL: string;
   readonly model: string;
   private readonly apiKey: string;
+  private readonly retryDelaysMs: readonly number[];
 
   constructor(options: OllamaClientOptions = {}) {
     const defaults = getLocalAIConfig();
     this.baseURL = normalizeBaseURL(options.baseURL || defaults.baseURL);
     this.model = options.model || defaults.model;
     this.apiKey = options.apiKey || defaults.apiKey;
+    this.retryDelaysMs = options.retryDelaysMs ?? RETRY_DELAYS_MS;
   }
 
   async health(signal?: AbortSignal): Promise<OllamaHealth> {
@@ -222,32 +308,65 @@ export class OllamaClient {
 
   private async requestWithRetry(options: OllamaChatOptions): Promise<string> {
     let lastError: Error | null = null;
+    const diagnostics = options.diagnostics === "translation";
+    const url = `${this.baseURL}/chat/completions`;
+    const headers = {
+      Authorization: `Bearer ${this.apiKey}`,
+      "Content-Type": "application/json",
+    };
+    const requestBody = {
+      model: this.model,
+      temperature: options.temperature,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: options.system },
+        { role: "user", content: options.user },
+      ],
+    };
+    const serializedBody = JSON.stringify(requestBody);
 
-    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
-      try {
-        const response = await fetch(`${this.baseURL}/chat/completions`, {
+    for (let attempt = 0; attempt <= this.retryDelaysMs.length; attempt += 1) {
+      writeTranslationDiagnostic(
+        diagnostics,
+        "info",
+        "ollama.translation.request",
+        {
+          attempt: attempt + 1,
           method: "POST",
+          url,
           headers: {
-            Authorization: `Bearer ${this.apiKey}`,
-            "Content-Type": "application/json",
+            Authorization: "[redacted]",
+            "Content-Type": headers["Content-Type"],
           },
-          body: JSON.stringify({
-            model: this.model,
-            temperature: options.temperature,
-            response_format: { type: "json_object" },
-            messages: [
-              { role: "system", content: options.system },
-              { role: "user", content: options.user },
-            ],
-          }),
+          body: requestBody,
+        },
+      );
+
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: serializedBody,
           signal: options.signal,
           cache: "no-store",
         });
+        const responseBody = await response.text();
+
+        writeTranslationDiagnostic(
+          diagnostics,
+          "info",
+          "ollama.translation.response",
+          {
+            attempt: attempt + 1,
+            url,
+            status: response.status,
+            body: responseBody,
+          },
+        );
 
         if (!response.ok) {
-          const message = await response.text();
           const modelMissing =
-            response.status === 404 && /model|not found/i.test(message);
+            response.status === 404 && /model|not found/i.test(responseBody);
 
           if (modelMissing) {
             throw new Error(
@@ -255,15 +374,12 @@ export class OllamaClient {
             );
           }
 
-          if (!isTemporaryStatus(response.status)) {
-            throw new Error(
-              `Ollama trả về HTTP ${response.status}${message ? `: ${message}` : ""}.`,
-            );
-          }
+          const httpError = ollamaHttpError(response.status, responseBody);
+          if (!isTemporaryStatus(response.status)) throw httpError;
 
-          lastError = new Error(`Ollama tạm thời lỗi HTTP ${response.status}.`);
+          lastError = httpError;
         } else {
-          const body = (await response.json()) as OllamaChatResponse;
+          const body = JSON.parse(responseBody) as OllamaChatResponse;
           const content = normalizeOllamaResponseContent(
             body.choices?.[0]?.message?.content,
           );
@@ -276,19 +392,43 @@ export class OllamaClient {
         }
       } catch (error) {
         if (options.signal?.aborted) throw error;
+        writeTranslationDiagnostic(
+          diagnostics,
+          "error",
+          "ollama.translation.exception",
+          {
+            attempt: attempt + 1,
+            url,
+            ...errorDiagnostic(error),
+          },
+        );
         if (
           error instanceof Error &&
           (error.message.includes("chưa có model") ||
-            error.message.includes("trả về HTTP"))
+            error instanceof OllamaHttpError)
         ) {
           throw error;
         }
         lastError = error instanceof Error ? error : new Error(String(error));
       }
 
-      if (attempt < RETRY_DELAYS_MS.length) {
-        await wait(RETRY_DELAYS_MS[attempt], options.signal);
+      if (attempt < this.retryDelaysMs.length) {
+        await wait(this.retryDelaysMs[attempt], options.signal);
       }
+    }
+
+    if (lastError instanceof OllamaHttpError) {
+      writeTranslationDiagnostic(
+        diagnostics,
+        "error",
+        "ollama.translation.exception",
+        {
+          attempt: this.retryDelaysMs.length + 1,
+          url,
+          ...errorDiagnostic(lastError),
+        },
+      );
+      throw lastError;
     }
 
     throw new Error(

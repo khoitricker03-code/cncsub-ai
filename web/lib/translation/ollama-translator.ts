@@ -53,6 +53,7 @@ export class OllamaTranslator implements Translator {
       }),
       temperature: 0,
       signal: options.signal,
+      diagnostics: "translation",
     });
 
     const translated =

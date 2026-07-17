@@ -309,6 +309,131 @@ test("Ollama client retries temporary chat failures", async () => {
   }
 });
 
+test("Ollama client preserves the real error after an HTTP 500", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalInfo = console.info;
+  const originalError = console.error;
+  const logs: string[] = [];
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+
+    if (url.endsWith("/models")) {
+      return Response.json({ data: [{ id: "qwen2.5:7b" }] });
+    }
+
+    return Response.json(
+      { error: "model runner process exited: GPU memory exhausted" },
+      { status: 500 },
+    );
+  };
+  console.info = (output?: unknown) => {
+    logs.push(String(output));
+  };
+  console.error = (output?: unknown) => {
+    logs.push(String(output));
+  };
+
+  try {
+    await assert.rejects(
+      () =>
+        new OllamaClient({
+          model: "qwen2.5:7b",
+          retryDelaysMs: [],
+        }).chatJSON({
+          system: "test",
+          user: "test",
+          temperature: 0,
+          diagnostics: "translation",
+        }),
+      (error: unknown) => {
+        assert.match(
+          String(error),
+          /HTTP 500: model runner process exited: GPU memory exhausted/,
+        );
+        assert.doesNotMatch(String(error), /Không kết nối được Ollama/);
+        return true;
+      },
+    );
+
+    const records = logs.map((entry) => JSON.parse(entry) as Record<string, unknown>);
+    const response = records.find(
+      (entry) => entry.event === "ollama.translation.response",
+    );
+    const exception = records.find(
+      (entry) => entry.event === "ollama.translation.exception",
+    );
+
+    assert.equal(response?.status, 500);
+    assert.match(String(response?.body), /GPU memory exhausted/);
+    assert.match(String(exception?.stack), /OllamaHttpError/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.info = originalInfo;
+    console.error = originalError;
+  }
+});
+
+test("translation diagnostics log the exact Ollama request without secrets", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalInfo = console.info;
+  const logs: string[] = [];
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+
+    if (url.endsWith("/models")) {
+      return Response.json({ data: [{ id: "qwen2.5:7b" }] });
+    }
+
+    return Response.json({
+      choices: [{ message: { content: '{"segments":[]}' } }],
+    });
+  };
+  console.info = (output?: unknown) => {
+    logs.push(String(output));
+  };
+
+  try {
+    await new OllamaClient({
+      apiKey: "must-not-appear-in-logs",
+      model: "qwen2.5:7b",
+    }).chatJSON({
+      system: "return JSON",
+      user: "translate this",
+      temperature: 0,
+      diagnostics: "translation",
+    });
+
+    const records = logs.map((entry) => JSON.parse(entry) as Record<string, unknown>);
+    const request = records.find(
+      (entry) => entry.event === "ollama.translation.request",
+    );
+    const response = records.find(
+      (entry) => entry.event === "ollama.translation.response",
+    );
+
+    assert.equal(request?.url, "http://127.0.0.1:11434/v1/chat/completions");
+    assert.deepEqual(request?.headers, {
+      Authorization: "[redacted]",
+      "Content-Type": "application/json",
+    });
+    assert.deepEqual(request?.body, {
+      model: "qwen2.5:7b",
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: "return JSON" },
+        { role: "user", content: "translate this" },
+      ],
+    });
+    assert.equal(response?.status, 200);
+    assert.match(String(response?.body), /segments/);
+    assert.doesNotMatch(logs.join("\n"), /must-not-appear-in-logs/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.info = originalInfo;
+  }
+});
+
 test("authentication is always bypassed in development only", () => {
   const mutableEnv = process.env as Record<string, string | undefined>;
   const originalNodeEnv = process.env.NODE_ENV;
