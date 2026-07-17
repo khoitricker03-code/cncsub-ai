@@ -174,23 +174,58 @@ export default function AIDubbing({
   const download = async () => {
     setError("");
     try {
-      const response = await fetch(`/api/projects/${projectId}/video?rendered=true`, {
-        cache: "no-store",
-        headers: {
-          Accept: "video/mp4",
-          Range: "bytes=0-",
-        },
-      });
-      if (!response.ok) {
-        const responseText = (await response.text()).trim();
-        throw new Error(
-          responseText || `MP4 download failed (HTTP ${response.status} ${response.statusText}).`,
-        );
+      const videoUrl = `/api/projects/${projectId}/video?rendered=true`;
+      const chunkSize = 4 * 1024 * 1024;
+      const chunks: Blob[] = [];
+      let offset = 0;
+      let totalSize: number | null = null;
+
+      while (totalSize === null || offset < totalSize) {
+        const end = offset + chunkSize - 1;
+        const response = await fetch(videoUrl, {
+          cache: "no-store",
+          headers: {
+            Accept: "video/mp4",
+            Range: `bytes=${offset}-${end}`,
+          },
+        });
+        if (!response.ok) {
+          const responseText = (await response.text()).trim();
+          throw new Error(
+            responseText || `MP4 download failed (HTTP ${response.status} ${response.statusText}).`,
+          );
+        }
+
+        const chunk = await response.blob();
+        if (chunk.size === 0) {
+          throw new Error(`The rendered MP4 response was empty at byte ${offset}.`);
+        }
+        chunks.push(chunk);
+
+        if (response.status === 200) {
+          totalSize = chunk.size;
+          offset = totalSize;
+          break;
+        }
+
+        const contentRange = response.headers.get("Content-Range");
+        const rangeMatch = contentRange?.match(/^bytes (\d+)-(\d+)\/(\d+)$/);
+        if (!rangeMatch) {
+          throw new Error("The rendered MP4 response did not include a valid Content-Range header.");
+        }
+
+        const rangeStart = Number(rangeMatch[1]);
+        const rangeEnd = Number(rangeMatch[2]);
+        totalSize = Number(rangeMatch[3]);
+        if (rangeStart !== offset || rangeEnd < rangeStart || totalSize <= rangeEnd) {
+          throw new Error(`The rendered MP4 returned an invalid byte range: ${contentRange}.`);
+        }
+        offset = rangeEnd + 1;
       }
 
-      const blob = await response.blob();
-      if (blob.size === 0) {
-        throw new Error("The rendered MP4 response was empty.");
+      const blob = new Blob(chunks, { type: "video/mp4" });
+      if (blob.size === 0 || blob.size !== totalSize) {
+        throw new Error("The rendered MP4 download was incomplete.");
       }
 
       const url = URL.createObjectURL(blob);

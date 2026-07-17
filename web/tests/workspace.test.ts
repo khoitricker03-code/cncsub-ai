@@ -303,8 +303,10 @@ test("AI Dubbing downloads the rendered MP4 through a temporary Blob URL", async
   const handler = panel.match(/const download = async \(\) => \{[\s\S]*?\n  \};/);
   assert.ok(handler);
   assert.match(handler[0], /video\?rendered=true/);
-  assert.match(handler[0], /Range: "bytes=0-"/);
+  assert.match(handler[0], /Range: `bytes=\$\{offset\}-\$\{end\}`/);
   assert.match(handler[0], /await response\.blob\(\)/);
+  assert.match(handler[0], /new Blob\(chunks, \{ type: "video\/mp4" \}\)/);
+  assert.match(handler[0], /Content-Range/);
   assert.match(handler[0], /URL\.createObjectURL\(blob\)/);
   assert.match(handler[0], /link\.download = "dubbed\.mp4"/);
   assert.match(handler[0], /link\.click\(\)/);
